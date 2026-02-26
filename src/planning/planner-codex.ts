@@ -14,12 +14,110 @@ export interface PlannerResult {
 
 const PLANNER_SCHEMA = {
   type: "object",
+  additionalProperties: false,
   properties: {
     nodes: {
-      type: "array"
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          taskId: { type: "string" },
+          title: { type: "string" },
+          provider: { type: "string", enum: ["codex", "claude", "gemini"] },
+          type: { type: "string", enum: ["code", "refactor", "test", "docs", "deps", "repair"] },
+          dependencies: {
+            type: "array",
+            items: { type: "string" }
+          },
+          writeScope: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              allow: { type: "array", items: { type: "string" } },
+              deny: { type: "array", items: { type: "string" } },
+              ownership: { type: "string", enum: ["exclusive", "shared-serial", "shared-append"] },
+              sharedKey: { type: "string" }
+            },
+            required: ["allow", "deny", "ownership"]
+          },
+          commandPolicy: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              allow: { type: "array", items: { type: "string" } },
+              deny: { type: "array", items: { type: "string" } },
+              network: { type: "string", enum: ["deny", "allow"] }
+            },
+            required: ["allow", "deny", "network"]
+          },
+          expected: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              files: { type: "array", items: { type: "string" } },
+              exports: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    file: { type: "string" },
+                    name: { type: "string" },
+                    kind: { type: "string", enum: ["function", "class", "type", "interface", "const"] }
+                  },
+                  required: ["file", "name", "kind"]
+                }
+              },
+              tests: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    file: { type: "string" },
+                    contains: { type: "string" }
+                  },
+                  required: ["file"]
+                }
+              }
+            },
+            required: []
+          },
+          verify: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              gateCommand: { type: "string" },
+              gateTimeoutSec: { type: "number" },
+              outputVerificationRequired: { type: "boolean" }
+            },
+            required: ["outputVerificationRequired"]
+          },
+          artifactIO: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              consumes: { type: "array", items: { type: "string" } },
+              produces: { type: "array", items: { type: "string" } }
+            },
+            required: []
+          }
+        },
+        required: ["taskId", "title", "provider", "type", "dependencies", "writeScope", "commandPolicy", "expected", "verify", "artifactIO"]
+      }
     },
     edges: {
-      type: "array"
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          from: { type: "string" },
+          to: { type: "string" }
+        },
+        required: ["from", "to"]
+      }
     }
   },
   required: ["nodes", "edges"]
