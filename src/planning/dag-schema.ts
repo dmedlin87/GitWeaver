@@ -12,7 +12,7 @@ const writeScopeSchema = z.object({
   allow: z.array(z.string().min(1)).min(1),
   deny: z.array(z.string()).default([]),
   ownership: z.enum(["exclusive", "shared-serial", "shared-append"]),
-  sharedKey: z.string().optional()
+  sharedKey: z.string().nullish()
 });
 
 const taskContractSchema = z.object({
@@ -28,18 +28,18 @@ const taskContractSchema = z.object({
     network: z.enum(["deny", "allow"]).default("deny")
   }),
   expected: z.object({
-    files: z.array(z.string()).optional(),
-    exports: z.array(exportSchema).optional(),
-    tests: z.array(z.object({ file: z.string(), contains: z.string().optional() })).optional()
+    files: z.array(z.string()).nullish(),
+    exports: z.array(exportSchema).nullish(),
+    tests: z.array(z.object({ file: z.string(), contains: z.string().nullish() })).nullish()
   }),
   verify: z.object({
-    gateCommand: z.string().optional(),
-    gateTimeoutSec: z.number().int().positive().optional(),
+    gateCommand: z.string().nullish(),
+    gateTimeoutSec: z.number().int().positive().nullish(),
     outputVerificationRequired: z.boolean().default(true)
   }),
   artifactIO: z.object({
-    consumes: z.array(z.string()).optional(),
-    produces: z.array(z.string()).optional()
+    consumes: z.array(z.string()).nullish(),
+    produces: z.array(z.string()).nullish()
   }),
   contractHash: z.string().optional()
 });
@@ -96,11 +96,28 @@ export function validateDag(input: unknown): DagSpec {
       provider: node.provider,
       type: node.type,
       dependencies: node.dependencies,
-      writeScope: node.writeScope,
+      writeScope: {
+        ...node.writeScope,
+        sharedKey: node.writeScope.sharedKey ?? undefined
+      },
       commandPolicy: node.commandPolicy,
-      expected: node.expected,
-      verify: node.verify,
-      artifactIO: node.artifactIO
+      expected: {
+        files: node.expected.files ?? undefined,
+        exports: node.expected.exports ?? undefined,
+        tests: node.expected.tests?.map((test) => ({
+          file: test.file,
+          contains: test.contains ?? undefined
+        })) ?? undefined
+      },
+      verify: {
+        gateCommand: node.verify.gateCommand ?? undefined,
+        gateTimeoutSec: node.verify.gateTimeoutSec ?? undefined,
+        outputVerificationRequired: node.verify.outputVerificationRequired
+      },
+      artifactIO: {
+        consumes: node.artifactIO.consumes ?? undefined,
+        produces: node.artifactIO.produces ?? undefined
+      }
     };
 
     return {

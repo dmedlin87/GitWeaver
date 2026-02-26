@@ -37,9 +37,9 @@ const PLANNER_SCHEMA = {
               allow: { type: "array", items: { type: "string" } },
               deny: { type: "array", items: { type: "string" } },
               ownership: { type: "string", enum: ["exclusive", "shared-serial", "shared-append"] },
-              sharedKey: { type: "string" }
+              sharedKey: { type: ["string", "null"] }
             },
-            required: ["allow", "deny", "ownership"]
+            required: ["allow", "deny", "ownership", "sharedKey"]
           },
           commandPolicy: {
             type: "object",
@@ -57,7 +57,7 @@ const PLANNER_SCHEMA = {
             properties: {
               files: { type: "array", items: { type: "string" } },
               exports: {
-                type: "array",
+                type: ["array", "null"],
                 items: {
                   type: "object",
                   additionalProperties: false,
@@ -70,38 +70,38 @@ const PLANNER_SCHEMA = {
                 }
               },
               tests: {
-                type: "array",
+                type: ["array", "null"],
                 items: {
                   type: "object",
                   additionalProperties: false,
                   properties: {
                     file: { type: "string" },
-                    contains: { type: "string" }
+                    contains: { type: ["string", "null"] }
                   },
-                  required: ["file"]
+                  required: ["file", "contains"]
                 }
               }
             },
-            required: []
+            required: ["files", "exports", "tests"]
           },
           verify: {
             type: "object",
             additionalProperties: false,
             properties: {
-              gateCommand: { type: "string" },
-              gateTimeoutSec: { type: "number" },
+              gateCommand: { type: ["string", "null"] },
+              gateTimeoutSec: { type: ["number", "null"] },
               outputVerificationRequired: { type: "boolean" }
             },
-            required: ["outputVerificationRequired"]
+            required: ["gateCommand", "gateTimeoutSec", "outputVerificationRequired"]
           },
           artifactIO: {
             type: "object",
             additionalProperties: false,
             properties: {
-              consumes: { type: "array", items: { type: "string" } },
-              produces: { type: "array", items: { type: "string" } }
+              consumes: { type: ["array", "null"], items: { type: "string" } },
+              produces: { type: ["array", "null"], items: { type: "string" } }
             },
-            required: []
+            required: ["consumes", "produces"]
           }
         },
         required: ["taskId", "title", "provider", "type", "dependencies", "writeScope", "commandPolicy", "expected", "verify", "artifactIO"]
@@ -136,10 +136,34 @@ function plannerPrompt(objective: string): string {
 }
 
 function extractJsonPayload(raw: string): unknown {
-  const lines = raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (
+      event &&
+      typeof event === "object" &&
+      (event as { type?: unknown }).type === "item.completed"
+    ) {
+      const item = (event as { item?: unknown }).item;
+      if (item && typeof item === "object" && (item as { type?: unknown }).type === "agent_message") {
+        const text = (item as { text?: unknown }).text;
+        if (typeof text === "string") {
+          try {
+            return JSON.parse(text);
+          } catch {
+            // Continue scanning in case a later message is valid JSON.
+          }
+        }
+      }
+    }
+  }
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index];
