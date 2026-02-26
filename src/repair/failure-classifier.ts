@@ -5,7 +5,9 @@ export type FailureClass =
   | "VERIFY_FAIL_TEST"
   | "SCOPE_FAIL"
   | "MERGE_CONFLICT"
-  | "NON_REPAIRABLE_EXEC";
+  | "NON_REPAIRABLE_EXEC"
+  | "LOCK_TIMEOUT"
+  | "STALE_TASK";
 
 const NON_REPAIRABLE_EXEC_PATTERNS = [
   "unknown arguments",
@@ -40,6 +42,12 @@ export function classifyFailure(text: string, reasonCode?: string): FailureClass
 
   if (isNonRepairableExecutionFailure(text, reasonCode)) {
     return "NON_REPAIRABLE_EXEC";
+  }
+  if (reasonCode === REASON_CODES.LOCK_TIMEOUT) {
+    return "LOCK_TIMEOUT";
+  }
+  if (reasonCode === REASON_CODES.STALE_TASK) {
+    return "STALE_TASK";
   }
   if (source.includes("scope") || reasonCode === REASON_CODES.SCOPE_DENY) {
     return "SCOPE_FAIL";
