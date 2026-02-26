@@ -95,6 +95,22 @@ describe("buildInstallPlan", () => {
     expect(summary.reasonCodes).not.toContain("AUTH_MISSING");
   });
 
+  it("adds issue when auth status is UNKNOWN", async () => {
+    mockGeminiChecks({
+      authCode: 1,
+      authStderr: "probe timed out"
+    });
+
+    const summary = await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
+    expect(summary.statuses[0]?.issues.some(i => i.includes("Authentication status unknown"))).toBe(true);
+  });
+
   it("treats cached credentials output as authenticated for gemini", async () => {
     mockGeminiChecks({
       authCode: 1,

@@ -63,6 +63,8 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
   const authStatus = await checkAuth(provider);
   if (authStatus === "MISSING") {
     issues.push(`Authentication required. Run: ${spec.authFixCommand}`);
+  } else if (authStatus === "UNKNOWN") {
+    issues.push("Authentication status unknown (check timed out or failed).");
   }
 
   if (provider === "codex" && process.platform === "win32") {
