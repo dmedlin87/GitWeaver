@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runCommand } from "../core/shell.js";
@@ -16,10 +16,10 @@ export class WorktreeManager {
   public async create(repoPath: string, runId: string, taskId: string, baseCommit: string): Promise<WorktreeHandle> {
     const branch = `orch/${sanitize(runId)}/${sanitize(taskId)}`;
     const root = join(tmpdir(), "orc", sanitize(runId));
-    mkdirSync(root, { recursive: true });
+    await mkdir(root, { recursive: true });
     const worktreePath = join(root, sanitize(taskId));
 
-    rmSync(worktreePath, { recursive: true, force: true });
+    await rm(worktreePath, { recursive: true, force: true });
 
     await runCommand("git", ["-C", repoPath, "worktree", "add", "-B", branch, worktreePath, baseCommit], {
       timeoutMs: 60_000
