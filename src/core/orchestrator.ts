@@ -511,6 +511,12 @@ export class Orchestrator {
           throw this.errorWithCode(`Task ${task.taskId} is stale: ${stale.reasons.join("; ")}`, REASON_CODES.STALE_TASK);
         }
 
+        for (const lease of leases) {
+          if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
+            throw this.errorWithCode(`Fencing token expired before merge for ${task.taskId}`, REASON_CODES.LOCK_TIMEOUT);
+          }
+        }
+
         await this.integrateCommit(ctx, task, commitHash, leases[0]?.fencingToken ?? 0);
 
         const verify = verifyTaskOutput(ctx.run.repoPath, task);
