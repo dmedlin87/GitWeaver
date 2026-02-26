@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { RunRecord, TaskRecord } from "../core/types.js";
 import type { ReasonCode } from "../core/reason-codes.js";
 
 export class OrchestratorDb {
   private readonly db: DatabaseSync;
+  private upsertTaskStmt: StatementSync | undefined;
 
   public constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -49,8 +50,8 @@ export class OrchestratorDb {
   }
 
   public upsertTask(task: TaskRecord): void {
-    this.db
-      .prepare(
+    if (!this.upsertTaskStmt) {
+      this.upsertTaskStmt = this.db.prepare(
         `INSERT INTO tasks(run_id, task_id, provider, type, state, attempts, contract_hash, lease_token, commit_hash, reason_code)
          VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id, task_id) DO UPDATE SET
@@ -62,19 +63,20 @@ export class OrchestratorDb {
            lease_token=excluded.lease_token,
            commit_hash=excluded.commit_hash,
            reason_code=excluded.reason_code`
-      )
-      .run(
-        task.runId,
-        task.taskId,
-        task.provider,
-        task.type,
-        task.state,
-        task.attempts,
-        task.contractHash,
-        task.leaseToken ?? null,
-        task.commitHash ?? null,
-        task.reasonCode ?? null
       );
+    }
+    this.upsertTaskStmt.run(
+      task.runId,
+      task.taskId,
+      task.provider,
+      task.type,
+      task.state,
+      task.attempts,
+      task.contractHash,
+      task.leaseToken ?? null,
+      task.commitHash ?? null,
+      task.reasonCode ?? null
+    );
   }
 
   public recordTaskAttempt(runId: string, taskId: string, attempt: number, state: string, reasonCode?: string): void {
