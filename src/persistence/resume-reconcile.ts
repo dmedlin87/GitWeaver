@@ -1,4 +1,5 @@
 import { runCommand } from "../core/shell.js";
+import { REASON_CODES } from "../core/reason-codes.js";
 import type { EventRecord, RunRecord, TaskRecord } from "../core/types.js";
 
 export interface ResumeInput {
@@ -12,6 +13,7 @@ export interface ResumeDecision {
   requeueTaskIds: string[];
   escalatedTaskIds: string[];
   driftDetected: boolean;
+  reasons: Record<string, string>;
 }
 
 async function mergedTasksFromGit(repoPath: string, runId: string): Promise<string[]> {
@@ -46,17 +48,23 @@ async function mergedTasksFromGit(repoPath: string, runId: string): Promise<stri
 export async function reconcileResume(input: ResumeInput): Promise<ResumeDecision> {
   const mergedFromGit = await mergedTasksFromGit(input.run.repoPath, input.run.runId);
   const mergedSet = new Set<string>(mergedFromGit);
+  const mergedTaskIds = [...mergedSet].sort();
 
   const requeueTaskIds: string[] = [];
   const escalatedTaskIds: string[] = [];
+  const reasons: Record<string, string> = {};
 
   for (const task of input.tasksFromDb) {
     if (mergedSet.has(task.taskId)) {
+      if (!["VERIFIED", "MERGED"].includes(task.state)) {
+        reasons[task.taskId] = REASON_CODES.RESUME_DB_LAG;
+      }
       continue;
     }
 
     if (["VERIFIED", "MERGED"].includes(task.state)) {
       requeueTaskIds.push(task.taskId);
+      reasons[task.taskId] = REASON_CODES.RESUME_MISSING_COMMIT;
       continue;
     }
 
@@ -68,13 +76,17 @@ export async function reconcileResume(input: ResumeInput): Promise<ResumeDecisio
     requeueTaskIds.push(task.taskId);
   }
 
+  requeueTaskIds.sort();
+  escalatedTaskIds.sort();
+
   const lastEvent = input.events[input.events.length - 1];
   const driftDetected = Boolean(lastEvent?.type === "DRIFT_DETECTED");
 
   return {
-    mergedTaskIds: [...mergedSet],
+    mergedTaskIds,
     requeueTaskIds,
     escalatedTaskIds,
-    driftDetected
+    driftDetected,
+    reasons
   };
 }
