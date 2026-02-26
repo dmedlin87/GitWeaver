@@ -9,6 +9,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     const args = ["--print", "--output-format", "json", request.prompt];
     const result = await this.pty.run("claude", args, {
       cwd: request.cwd,
+      env: request.env,
       timeoutMs: request.timeoutMs,
       heartbeatMs: Math.max(10_000, Math.floor(request.timeoutMs / 3))
     });

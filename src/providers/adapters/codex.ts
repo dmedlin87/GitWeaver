@@ -13,6 +13,7 @@ export class CodexAdapter implements ProviderAdapter {
 
     const result = await this.pty.run("codex", args, {
       cwd: request.cwd,
+      env: request.env,
       timeoutMs: request.timeoutMs,
       heartbeatMs: Math.max(10_000, Math.floor(request.timeoutMs / 3))
     });

@@ -5,6 +5,7 @@ export interface ProviderExecutionRequest {
   cwd: string;
   timeoutMs: number;
   outputSchemaPath?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface ProviderExecutionResult {

@@ -33,10 +33,27 @@ export function createSandboxHome(runId: string, taskId: string, provider: Provi
   return home;
 }
 
+const SAFE_ENV_VARS = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM", "COLORTERM"];
+
 export function buildSandboxEnv(baseEnv: NodeJS.ProcessEnv, sandboxHome: string): NodeJS.ProcessEnv {
-  return {
-    ...baseEnv,
-    HOME: sandboxHome,
-    USERPROFILE: sandboxHome
-  };
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const key of SAFE_ENV_VARS) {
+    if (baseEnv[key] !== undefined) {
+      env[key] = baseEnv[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (key.startsWith("ORCH_") && value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  env.HOME = sandboxHome;
+  env.USERPROFILE = sandboxHome;
+  env.TMP = tmpdir();
+  env.TEMP = tmpdir();
+
+  return env;
 }

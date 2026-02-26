@@ -8,6 +8,7 @@ export class GeminiAdapter implements ProviderAdapter {
     const args = ["--prompt", "orchestrator_input", "--output-format", "json", "--approval-mode", "auto_edit"];
     const result = await runCommand("gemini", args, {
       cwd: request.cwd,
+      env: request.env,
       timeoutMs: request.timeoutMs,
       stdin: request.prompt
     });

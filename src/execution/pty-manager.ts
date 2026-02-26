@@ -43,15 +43,20 @@ export class PtyManager {
         ? ["-NoProfile", "-Command", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`]
         : ["-lc", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`];
 
+      const env = options.env ? { ...options.env } : { ...process.env };
+      if (!env.TERM && process.env.TERM) {
+        env.TERM = process.env.TERM;
+      }
+      if (!env.COLORTERM && process.env.COLORTERM) {
+        env.COLORTERM = process.env.COLORTERM;
+      }
+
       const proc = ptyModule.spawn(shell, shellArgs, {
         name: "xterm-color",
         cols: 120,
         rows: 40,
         cwd: options.cwd,
-        env: {
-          ...process.env,
-          ...options.env
-        }
+        env: env as Record<string, string>
       });
 
       let rawOutput = "";
