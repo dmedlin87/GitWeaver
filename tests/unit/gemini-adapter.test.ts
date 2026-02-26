@@ -63,4 +63,29 @@ describe("GeminiAdapter", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("usage:");
   });
+
+  it("passes env to runCommand", async () => {
+    runCommandMock.mockResolvedValue({
+      code: 0,
+      stdout: "",
+      stderr: ""
+    });
+
+    const adapter = new GeminiAdapter();
+    const env = { TEST_VAR: "value" };
+    await adapter.execute({
+      prompt: "test",
+      cwd: "/tmp",
+      timeoutMs: 1000,
+      env
+    });
+
+    expect(runCommandMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Array),
+      expect.objectContaining({
+        env
+      })
+    );
+  });
 });

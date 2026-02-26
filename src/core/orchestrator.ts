@@ -460,7 +460,8 @@ export class Orchestrator {
         execution = await adapter.execute({
           prompt,
           cwd: worktree.path,
-          timeoutMs: ctx.config.heartbeatTimeoutSec * 1000
+          timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
+          env
         });
       } finally {
         clearInterval(providerHeartbeat);
