@@ -26,10 +26,20 @@ export function runCommand(command: string, args: string[], options: ExecOptions
     let stdout = "";
     let stderr = "";
     let timeout: NodeJS.Timeout | undefined;
+    let forceKill: NodeJS.Timeout | undefined;
+    let timedOut = false;
 
     if (options.timeoutMs && options.timeoutMs > 0) {
       timeout = setTimeout(() => {
+        timedOut = true;
         child.kill("SIGTERM");
+        forceKill = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // process already terminated
+          }
+        }, 5_000);
       }, options.timeoutMs);
     }
 
@@ -45,6 +55,9 @@ export function runCommand(command: string, args: string[], options: ExecOptions
       if (timeout) {
         clearTimeout(timeout);
       }
+      if (forceKill) {
+        clearTimeout(forceKill);
+      }
       reject(error);
     });
 
@@ -52,8 +65,14 @@ export function runCommand(command: string, args: string[], options: ExecOptions
       if (timeout) {
         clearTimeout(timeout);
       }
+      if (forceKill) {
+        clearTimeout(forceKill);
+      }
+      if (timedOut) {
+        stderr = `${stderr}\nCommand timed out after ${options.timeoutMs}ms`.trim();
+      }
       resolve({
-        code: code ?? 1,
+        code: timedOut ? 124 : (code ?? 1),
         stdout,
         stderr
       });

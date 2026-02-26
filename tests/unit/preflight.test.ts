@@ -94,6 +94,22 @@ describe("buildInstallPlan", () => {
     expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
     expect(summary.reasonCodes).not.toContain("AUTH_MISSING");
   });
+
+  it("treats cached credentials output as authenticated for gemini", async () => {
+    mockGeminiChecks({
+      authCode: 1,
+      authStderr: "Loaded cached credentials."
+    });
+
+    const summary = await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    expect(summary.statuses[0]?.authStatus).toBe("OK");
+    expect(summary.reasonCodes).not.toContain("AUTH_MISSING");
+  });
 });
 
 interface GeminiProbeOptions {

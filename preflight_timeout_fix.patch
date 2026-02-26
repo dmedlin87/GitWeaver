@@ -1,0 +1,159 @@
+diff --git a/src/core/shell.ts b/src/core/shell.ts
+index c6d23f0..6395c64 100644
+--- a/src/core/shell.ts
++++ b/src/core/shell.ts
+@@ -26,10 +26,20 @@ export function runCommand(command: string, args: string[], options: ExecOptions
+     let stdout = "";
+     let stderr = "";
+     let timeout: NodeJS.Timeout | undefined;
++    let forceKill: NodeJS.Timeout | undefined;
++    let timedOut = false;
+ 
+     if (options.timeoutMs && options.timeoutMs > 0) {
+       timeout = setTimeout(() => {
++        timedOut = true;
+         child.kill("SIGTERM");
++        forceKill = setTimeout(() => {
++          try {
++            child.kill("SIGKILL");
++          } catch {
++            // process already terminated
++          }
++        }, 5_000);
+       }, options.timeoutMs);
+     }
+ 
+@@ -45,6 +55,9 @@ export function runCommand(command: string, args: string[], options: ExecOptions
+       if (timeout) {
+         clearTimeout(timeout);
+       }
++      if (forceKill) {
++        clearTimeout(forceKill);
++      }
+       reject(error);
+     });
+ 
+@@ -52,8 +65,14 @@ export function runCommand(command: string, args: string[], options: ExecOptions
+       if (timeout) {
+         clearTimeout(timeout);
+       }
++      if (forceKill) {
++        clearTimeout(forceKill);
++      }
++      if (timedOut) {
++        stderr = `${stderr}\nCommand timed out after ${options.timeoutMs}ms`.trim();
++      }
+       resolve({
+-        code: code ?? 1,
++        code: timedOut ? 124 : (code ?? 1),
+         stdout,
+         stderr
+       });
+diff --git a/src/providers/preflight.ts b/src/providers/preflight.ts
+index 61bfa24..dbac334 100644
+--- a/src/providers/preflight.ts
++++ b/src/providers/preflight.ts
+@@ -34,7 +34,7 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
+   let versionInstalled: string | undefined;
+ 
+   try {
+-    const versionResult = await runCommand(spec.binary, spec.versionArgs, { timeoutMs: 30_000 });
++    const versionResult = await runCommand(spec.binary, spec.versionArgs, { timeoutMs: 20_000 });
+     if (versionResult.code === 0) {
+       installed = true;
+       versionInstalled = parseVersion(versionResult.stdout) ?? parseVersion(versionResult.stderr) ?? undefined;
+@@ -82,7 +82,7 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
+ 
+ async function lookupLatestVersion(npmPackage: string): Promise<string | undefined> {
+   try {
+-    const result = await runCommand("npm", ["view", npmPackage, "version"], { timeoutMs: 30_000 });
++    const result = await runCommand("npm", ["view", npmPackage, "version"], { timeoutMs: 20_000 });
+     if (result.code !== 0) {
+       return undefined;
+     }
+@@ -104,7 +104,7 @@ async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKN
+   }
+ 
+   try {
+-    const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 30_000 });
++    const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 20_000 });
+     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+     if (text.includes("not logged") || text.includes("sign in") || text.includes("authentication required")) {
+       return "MISSING";
+@@ -120,20 +120,44 @@ async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKN
+ 
+ async function checkGeminiAuth(): Promise<"OK" | "MISSING" | "UNKNOWN"> {
+   try {
+-    const result = await runCommand("gemini", ["--prompt", "health-check", "--output-format", "json"], { timeoutMs: 30_000 });
++    const result = await runCommand(
++      "gemini",
++      ["--prompt", "Reply with OK.", "--output-format", "json", "--approval-mode", "plan"],
++      { timeoutMs: 20_000 }
++    );
+     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+-    if (text.includes("api key") || text.includes("auth") || text.includes("login") || text.includes("credentials")) {
++    if (isGeminiAuthMissingText(text)) {
+       return "MISSING";
+     }
+-    if (result.code !== 0) {
+-      return "UNKNOWN";
++    if (isGeminiAuthConfirmedText(text)) {
++      return "OK";
+     }
+-    return "OK";
++    return result.code === 0 ? "OK" : "UNKNOWN";
+   } catch {
+     return "UNKNOWN";
+   }
+ }
+ 
++function isGeminiAuthMissingText(text: string): boolean {
++  return [
++    "authentication required",
++    "login required",
++    "run: gemini",
++    "not logged",
++    "sign in",
++    "api key",
++    "no active credentials"
++  ].some((token) => text.includes(token));
++}
++
++function isGeminiAuthConfirmedText(text: string): boolean {
++  return [
++    "loaded cached credentials",
++    "logged in with google",
++    "authentication succeeded"
++  ].some((token) => text.includes(token));
++}
++
+ function parseVersion(text: string): string | null {
+   const match = text.match(/(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/);
+   return match?.[1] ?? null;
+diff --git a/tests/unit/preflight.test.ts b/tests/unit/preflight.test.ts
+index 9dd6331..2309c38 100644
+--- a/tests/unit/preflight.test.ts
++++ b/tests/unit/preflight.test.ts
+@@ -94,6 +94,22 @@ describe("buildInstallPlan", () => {
+     expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
+     expect(summary.reasonCodes).not.toContain("AUTH_MISSING");
+   });
++
++  it("treats cached credentials output as authenticated for gemini", async () => {
++    mockGeminiChecks({
++      authCode: 1,
++      authStderr: "Loaded cached credentials."
++    });
++
++    const summary = await runPreflight(["gemini"], {
++      installMissing: "never",
++      upgradeProviders: "never",
++      nonInteractive: true
++    });
++
++    expect(summary.statuses[0]?.authStatus).toBe("OK");
++    expect(summary.reasonCodes).not.toContain("AUTH_MISSING");
++  });
+ });
+ 
+ interface GeminiProbeOptions {

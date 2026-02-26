@@ -34,7 +34,7 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
   let versionInstalled: string | undefined;
 
   try {
-    const versionResult = await runCommand(spec.binary, spec.versionArgs, { timeoutMs: 30_000 });
+    const versionResult = await runCommand(spec.binary, spec.versionArgs, { timeoutMs: 20_000 });
     if (versionResult.code === 0) {
       installed = true;
       versionInstalled = parseVersion(versionResult.stdout) ?? parseVersion(versionResult.stderr) ?? undefined;
@@ -82,7 +82,7 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
 
 async function lookupLatestVersion(npmPackage: string): Promise<string | undefined> {
   try {
-    const result = await runCommand("npm", ["view", npmPackage, "version"], { timeoutMs: 30_000 });
+    const result = await runCommand("npm", ["view", npmPackage, "version"], { timeoutMs: 20_000 });
     if (result.code !== 0) {
       return undefined;
     }
@@ -104,7 +104,7 @@ async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKN
   }
 
   try {
-    const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 30_000 });
+    const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 20_000 });
     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
     if (text.includes("not logged") || text.includes("sign in") || text.includes("authentication required")) {
       return "MISSING";
@@ -120,18 +120,42 @@ async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKN
 
 async function checkGeminiAuth(): Promise<"OK" | "MISSING" | "UNKNOWN"> {
   try {
-    const result = await runCommand("gemini", ["--prompt", "health-check", "--output-format", "json"], { timeoutMs: 30_000 });
+    const result = await runCommand(
+      "gemini",
+      ["--prompt", "Reply with OK.", "--output-format", "json", "--approval-mode", "plan"],
+      { timeoutMs: 20_000 }
+    );
     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
-    if (text.includes("api key") || text.includes("auth") || text.includes("login") || text.includes("credentials")) {
+    if (isGeminiAuthMissingText(text)) {
       return "MISSING";
     }
-    if (result.code !== 0) {
-      return "UNKNOWN";
+    if (isGeminiAuthConfirmedText(text)) {
+      return "OK";
     }
-    return "OK";
+    return result.code === 0 ? "OK" : "UNKNOWN";
   } catch {
     return "UNKNOWN";
   }
+}
+
+function isGeminiAuthMissingText(text: string): boolean {
+  return [
+    "authentication required",
+    "login required",
+    "run: gemini",
+    "not logged",
+    "sign in",
+    "api key",
+    "no active credentials"
+  ].some((token) => text.includes(token));
+}
+
+function isGeminiAuthConfirmedText(text: string): boolean {
+  return [
+    "loaded cached credentials",
+    "logged in with google",
+    "authentication succeeded"
+  ].some((token) => text.includes(token));
 }
 
 function parseVersion(text: string): string | null {
