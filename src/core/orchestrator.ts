@@ -28,7 +28,7 @@ import { runGate } from "../verification/post-merge-gate.js";
 import { detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
 import { buildContextPack } from "../planning/context-pack.js";
 import { buildPromptEnvelope } from "../planning/prompt-envelope.js";
-import { classifyFailure } from "../repair/failure-classifier.js";
+import { classifyFailure, isNonRepairableExecutionFailure } from "../repair/failure-classifier.js";
 import { RepairBudget } from "../repair/repair-budget.js";
 import { buildRepairTask } from "../repair/repair-planner.js";
 import { OrchestratorDb } from "../persistence/sqlite.js";
@@ -447,9 +447,19 @@ export class Orchestrator {
       ctx.events.append(ctx.run.runId, "TASK_VERIFIED", { taskId: task.taskId, commitHash });
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
-      const failureClass = classifyFailure((error as Error).message, reasonCode);
+      const errorText = (error as Error).message;
+
+      if (isNonRepairableExecutionFailure(errorText, reasonCode)) {
+        ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, "NON_REPAIRABLE_EXEC", 0, errorText);
+        record.state = "ESCALATED";
+        record.reasonCode = reasonCode;
+        ctx.db.upsertTask(record);
+        throw error;
+      }
+
+      const failureClass = classifyFailure(errorText, reasonCode);
       const attempt = repairBudget.increment(failureClass);
-      ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, (error as Error).message);
+      ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, errorText);
 
       if (repairBudget.allowed(failureClass)) {
         const changedFiles = task.writeScope.allow;
