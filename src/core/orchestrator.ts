@@ -512,7 +512,10 @@ export class Orchestrator {
       `ORCH_FENCING_TOKEN=${fencingToken}`
     ];
     const amended = `${message}\n\n${footerLines.join("\n")}`;
-    await runCommand("git", ["-C", ctx.run.repoPath, "commit", "--amend", "-m", amended], { timeoutMs: 30_000 });
+    await runCommand("git", ["-C", ctx.run.repoPath, "commit", "--amend", "--file", "-"], {
+      timeoutMs: 30_000,
+      stdin: `${amended}\n`
+    });
 
     this.transitionRun(ctx, "VERIFYING");
   }
