@@ -22,6 +22,18 @@ export class OrchestratorDb {
     this.db.exec(sql);
   }
 
+  public transaction<T>(fn: () => T): T {
+    this.db.exec("BEGIN");
+    try {
+      const result = fn();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public upsertRun(run: RunRecord): void {
     this.db
       .prepare(
