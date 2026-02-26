@@ -23,6 +23,7 @@ import { createSandboxHome, buildSandboxEnv } from "../execution/sandbox-env.js"
 import { getProviderAdapter } from "../providers/adapters/index.js";
 import { analyzeCommit, latestCommit } from "../verification/commit-analyzer.js";
 import { evaluateScope } from "../verification/scope-policy.js";
+import { extractFilesFromError } from "../verification/error-extractor.js";
 import { verifyTaskOutput } from "../verification/output-verifier.js";
 import { runGate } from "../verification/post-merge-gate.js";
 import { detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
@@ -553,11 +554,24 @@ export class Orchestrator {
       ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, errorText);
 
       if (repairBudget.allowed(failureClass)) {
-        const changedFiles = task.writeScope.allow;
+        let changedFiles: string[] = [];
+        if (record.commitHash) {
+          try {
+            const analysis = await analyzeCommit(worktree.path, record.commitHash);
+            changedFiles = analysis.changedFiles;
+          } catch {
+            // If analysis fails (e.g. repo corruption), fallback to empty
+          }
+        }
+
+        const errorFiles = extractFilesFromError(errorText, task.writeScope.allow);
+        const narrowedFiles = [...new Set([...changedFiles, ...errorFiles])];
+        const effectiveFiles = narrowedFiles.length > 0 ? narrowedFiles : task.writeScope.allow;
+
         const repairTask = buildRepairTask({
           failedTask: task,
-          changedFiles,
-          errorFiles: changedFiles
+          changedFiles: effectiveFiles,
+          errorFiles: effectiveFiles
         });
         taskById.set(repairTask.taskId, repairTask);
         dependencyMap.set(repairTask.taskId, [task.taskId]);
