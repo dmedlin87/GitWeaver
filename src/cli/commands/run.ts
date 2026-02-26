@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { Orchestrator, printJson } from "../../core/orchestrator.js";
+import { Orchestrator, printJson, type ProgressUpdate } from "../../core/orchestrator.js";
 
 interface RunOptions {
   concurrency?: number;
@@ -30,6 +30,16 @@ export function registerRunCommand(program: Command): void {
     .option("--json", "print JSON outcome")
     .action(async (prompt: string, opts: RunOptions) => {
       const orchestrator = new Orchestrator();
+      const onProgress = opts.json ? undefined : (update: ProgressUpdate) => {
+        const tags = [update.stage];
+        if (update.taskId) {
+          tags.push(update.taskId);
+        }
+        if (update.provider) {
+          tags.push(update.provider);
+        }
+        process.stderr.write(`[${update.ts}] ${update.runId} | ${tags.join(" | ")}: ${update.message}\n`);
+      };
       const result = await orchestrator.run({
         prompt,
         concurrency: opts.concurrency,
@@ -40,7 +50,8 @@ export function registerRunCommand(program: Command): void {
         acceptDrift: opts.acceptDrift,
         installMissing: opts.installMissing,
         upgradeProviders: opts.upgradeProviders,
-        nonInteractive: opts.nonInteractive
+        nonInteractive: opts.nonInteractive,
+        onProgress
       });
 
       if (opts.json) {

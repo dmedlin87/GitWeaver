@@ -44,6 +44,19 @@ export interface RunCliOptions extends PreflightOptions {
   repo?: string;
   allowBaselineRepair?: boolean;
   acceptDrift?: boolean;
+  onProgress?: (update: ProgressUpdate) => void;
+}
+
+export interface ProgressUpdate {
+  runId: string;
+  ts: string;
+  stage: string;
+  message: string;
+  state?: string;
+  taskId?: string;
+  provider?: ProviderId;
+  attempt?: number;
+  elapsedSec?: number;
 }
 
 export interface RunOutcome {
@@ -59,6 +72,7 @@ interface RuntimeContext {
   runDir: string;
   db: OrchestratorDb;
   events: EventLog;
+  onProgress?: (update: ProgressUpdate) => void;
 }
 
 export class Orchestrator {
@@ -100,11 +114,13 @@ export class Orchestrator {
       config,
       runDir,
       db,
-      events
+      events,
+      onProgress: options.onProgress
     };
 
     try {
       this.persistRun(ctx);
+      this.progress(ctx, "run_started", "Run initialized");
 
       await this.preflightStageA(ctx, options);
       await this.ensureBaseline(ctx, options);
@@ -114,6 +130,7 @@ export class Orchestrator {
       await this.preflightStageB(ctx, providersInDag, options);
 
       if (options.dryRun) {
+        this.progress(ctx, "dry_run", "Dry run completed after planning");
         return this.completeRun(ctx, "COMPLETED", undefined, {
           dryRun: true,
           dag: frozenDag
@@ -250,6 +267,10 @@ export class Orchestrator {
           record.state = "READY";
           ctx.db.upsertTask(record);
           ctx.events.append(ctx.run.runId, "TASK_READY", { taskId: task.taskId });
+          this.progress(ctx, "task_ready", `Task ${task.taskId} is ready`, {
+            taskId: task.taskId,
+            provider: task.provider
+          });
           scheduler.enqueue(task);
         }
       }
@@ -264,6 +285,14 @@ export class Orchestrator {
         if (!record) {
           continue;
         }
+        ctx.events.append(ctx.run.runId, "TASK_DISPATCHED", {
+          taskId: task.taskId,
+          provider: task.provider
+        });
+        this.progress(ctx, "task_dispatched", `Dispatching ${task.taskId} to ${task.provider}`, {
+          taskId: task.taskId,
+          provider: task.provider
+        });
 
         const taskPromise = this.executeTask(
           ctx,
@@ -351,6 +380,11 @@ export class Orchestrator {
     record.state = "LEASE_ACQUIRED";
     ctx.db.recordTaskAttempt(ctx.run.runId, task.taskId, record.attempts, record.state);
     ctx.events.append(ctx.run.runId, "TASK_ATTEMPT", { taskId: task.taskId, attempt: record.attempts });
+    this.progress(ctx, "task_attempt", `Task ${task.taskId} attempt ${record.attempts} started`, {
+      taskId: task.taskId,
+      provider: task.provider,
+      attempt: record.attempts
+    });
 
     const resourceKeys = this.resourceKeys(task);
     const leases = lockManager.tryAcquireWrite(resourceKeys, task.taskId);
@@ -390,10 +424,59 @@ export class Orchestrator {
       const env = buildSandboxEnv(process.env, sandboxHome);
 
       const adapter = getProviderAdapter(task.provider);
-      const execution = await adapter.execute({
-        prompt,
-        cwd: worktree.path,
-        timeoutMs: ctx.config.heartbeatTimeoutSec * 1000
+      const providerStartedAt = Date.now();
+      const heartbeatMs = 15_000;
+      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_START", {
+        taskId: task.taskId,
+        provider: task.provider,
+        attempt: record.attempts
+      });
+      this.progress(ctx, "provider_start", `Invoking ${task.provider} for ${task.taskId}`, {
+        taskId: task.taskId,
+        provider: task.provider,
+        attempt: record.attempts
+      });
+
+      const providerHeartbeat = setInterval(() => {
+        const elapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
+        ctx.events.append(ctx.run.runId, "TASK_PROVIDER_HEARTBEAT", {
+          taskId: task.taskId,
+          provider: task.provider,
+          attempt: record.attempts,
+          elapsedSec
+        });
+        this.progress(ctx, "provider_heartbeat", `Still waiting on ${task.provider} for ${task.taskId}`, {
+          taskId: task.taskId,
+          provider: task.provider,
+          attempt: record.attempts,
+          elapsedSec
+        });
+      }, heartbeatMs);
+
+      let execution;
+      try {
+        execution = await adapter.execute({
+          prompt,
+          cwd: worktree.path,
+          timeoutMs: ctx.config.heartbeatTimeoutSec * 1000
+        });
+      } finally {
+        clearInterval(providerHeartbeat);
+      }
+
+      const providerElapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
+      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_FINISH", {
+        taskId: task.taskId,
+        provider: task.provider,
+        attempt: record.attempts,
+        elapsedSec: providerElapsedSec,
+        exitCode: execution.exitCode
+      });
+      this.progress(ctx, "provider_finish", `${task.provider} finished ${task.taskId} with exit code ${execution.exitCode}`, {
+        taskId: task.taskId,
+        provider: task.provider,
+        attempt: record.attempts,
+        elapsedSec: providerElapsedSec
       });
 
       if (execution.exitCode !== 0) {
@@ -445,9 +528,17 @@ export class Orchestrator {
       record.state = "VERIFIED";
       ctx.db.upsertTask(record);
       ctx.events.append(ctx.run.runId, "TASK_VERIFIED", { taskId: task.taskId, commitHash });
+      this.progress(ctx, "task_verified", `Task ${task.taskId} verified`, {
+        taskId: task.taskId,
+        provider: task.provider
+      });
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
       const errorText = (error as Error).message;
+      this.progress(ctx, "task_error", `Task ${task.taskId} failed: ${errorText}`, {
+        taskId: task.taskId,
+        provider: task.provider
+      });
 
       if (isNonRepairableExecutionFailure(errorText, reasonCode)) {
         ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, "NON_REPAIRABLE_EXEC", 0, errorText);
@@ -531,24 +622,28 @@ export class Orchestrator {
   }
 
   private async preflightStageA(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
+    this.progress(ctx, "preflight_a_start", "Preflight stage A starting");
     const preflight = await runPreflight(["codex"], options);
     ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_A", {
       statuses: preflight.statuses,
       installPlan: preflight.installPlan,
       reasonCodes: preflight.reasonCodes
     });
+    this.progress(ctx, "preflight_a_done", "Preflight stage A completed");
     if (preflight.reasonCodes.length > 0) {
       throw this.errorWithCode("Preflight stage A failed", preflight.reasonCodes[0] ?? REASON_CODES.ABORTED_POLICY);
     }
   }
 
   private async preflightStageB(ctx: RuntimeContext, providers: ProviderId[], options: RunCliOptions): Promise<void> {
+    this.progress(ctx, "preflight_b_start", `Preflight stage B starting for: ${providers.join(", ")}`);
     const preflight = await runPreflight(providers, options);
     ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_B", {
       statuses: preflight.statuses,
       installPlan: preflight.installPlan,
       reasonCodes: preflight.reasonCodes
     });
+    this.progress(ctx, "preflight_b_done", "Preflight stage B completed");
 
     const missingAuthProviders = preflight.statuses
       .filter((status) => status.authStatus === "MISSING")
@@ -566,6 +661,7 @@ export class Orchestrator {
   }
 
   private async ensureBaseline(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
+    this.progress(ctx, "baseline_start", "Checking repository baseline");
     const clean = await this.isRepoClean(ctx.run.repoPath);
     if (!clean) {
       throw this.errorWithCode("Repository is dirty at run start", REASON_CODES.BASELINE_DIRTY_REPO);
@@ -578,9 +674,11 @@ export class Orchestrator {
 
     this.transitionRun(ctx, "BASELINE_OK");
     ctx.events.append(ctx.run.runId, "BASELINE_OK", { command: gate.command, exitCode: gate.exitCode });
+    this.progress(ctx, "baseline_done", "Baseline checks passed");
   }
 
   private async plan(ctx: RuntimeContext, options: RunCliOptions): Promise<DagSpec> {
+    this.progress(ctx, "plan_start", "Generating and auditing DAG");
     const planned = options.dryRun
       ? this.mockDag(options.prompt)
       : (await generateDagWithCodex(options.prompt, ctx.run.repoPath)).dag;
@@ -621,6 +719,7 @@ export class Orchestrator {
       findings: audited.findings,
       immutablePlanHash: frozen.immutablePlanHash
     });
+    this.progress(ctx, "plan_done", `Plan frozen with ${frozen.dag.nodes.length} task(s)`);
 
     return frozen.dag;
   }
@@ -735,6 +834,7 @@ export class Orchestrator {
     ctx.events.append(ctx.run.runId, "RUN_STATE", {
       state: to
     });
+    this.progress(ctx, "run_state", `Run state changed to ${to}`, { state: to });
   }
 
   private persistRun(ctx: RuntimeContext): void {
@@ -764,6 +864,7 @@ export class Orchestrator {
       reasonCode,
       summary
     });
+    this.progress(ctx, "run_complete", `Run completed with state ${state}`, { state });
 
     return {
       runId: ctx.run.runId,
@@ -827,6 +928,24 @@ export class Orchestrator {
   private extractReasonCode(error: unknown): ReasonCode {
     const reasonCode = (error as { reasonCode?: ReasonCode }).reasonCode;
     return reasonCode ?? REASON_CODES.ABORTED_POLICY;
+  }
+
+  private progress(
+    ctx: RuntimeContext,
+    stage: string,
+    message: string,
+    details: Omit<ProgressUpdate, "runId" | "ts" | "stage" | "message"> = {}
+  ): void {
+    if (!ctx.onProgress) {
+      return;
+    }
+    ctx.onProgress({
+      runId: ctx.run.runId,
+      ts: new Date().toISOString(),
+      stage,
+      message,
+      ...details
+    });
   }
 }
 
