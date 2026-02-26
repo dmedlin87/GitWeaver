@@ -191,7 +191,8 @@ export class Orchestrator {
       summary: {
         mergedTaskIds: decision.mergedTaskIds,
         requeueTaskIds: decision.requeueTaskIds,
-        escalatedTaskIds: decision.escalatedTaskIds
+        escalatedTaskIds: decision.escalatedTaskIds,
+        reconcileReasons: decision.reasons
       }
     };
   }
