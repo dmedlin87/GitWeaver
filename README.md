@@ -15,6 +15,16 @@ Run in dev mode:
 pnpm dev run "your objective"
 ```
 
+## Validation
+
+```bash
+pnpm typecheck
+pnpm build
+pnpm test
+```
+
+CI runs the same pipeline via `.github/workflows/ci.yml`.
+
 ## Commands
 
 - `orchestrator run "<prompt>" [--concurrency N] [--dry-run] [--config path] [--repo path] [--allow-baseline-repair] [--accept-drift]`
