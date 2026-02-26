@@ -1,0 +1,302 @@
+import { runCommand, runShellLine } from "../core/shell.js";
+import { promptYesNo } from "../core/prompt.js";
+import type { InstallPlan, InstallResult, ProviderId, ProviderStatus } from "../core/types.js";
+import { REASON_CODES, type ReasonCode } from "../core/reason-codes.js";
+import { PROVIDER_SPECS } from "./registry.js";
+
+export interface PreflightOptions {
+  installMissing?: "prompt" | "never" | "auto";
+  upgradeProviders?: "warn" | "never" | "prompt" | "required";
+  nonInteractive?: boolean;
+  attemptFixAuth?: boolean;
+}
+
+export interface PreflightSummary {
+  statuses: ProviderStatus[];
+  installPlan: InstallPlan;
+  installResult?: InstallResult;
+  reasonCodes: ReasonCode[];
+}
+
+export async function checkProviders(targetProviders: ProviderId[]): Promise<ProviderStatus[]> {
+  const statuses: ProviderStatus[] = [];
+  for (const provider of targetProviders) {
+    statuses.push(await checkSingleProvider(provider));
+  }
+  return statuses;
+}
+
+async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus> {
+  const spec = PROVIDER_SPECS[provider];
+  const issues: string[] = [];
+
+  let installed = false;
+  let versionInstalled: string | undefined;
+
+  try {
+    const versionResult = await runCommand(spec.binary, spec.versionArgs, { timeoutMs: 30_000 });
+    if (versionResult.code === 0) {
+      installed = true;
+      versionInstalled = parseVersion(versionResult.stdout) ?? parseVersion(versionResult.stderr) ?? undefined;
+    }
+  } catch {
+    installed = false;
+  }
+
+  const versionLatest = await lookupLatestVersion(spec.npmPackage);
+  if (!versionLatest) {
+    issues.push(`Failed to resolve latest npm version for ${spec.npmPackage}`);
+  }
+
+  if (!installed) {
+    issues.push(`Missing CLI binary: ${spec.binary}`);
+    return {
+      provider,
+      installed,
+      versionLatest,
+      authStatus: "UNKNOWN",
+      healthStatus: "UNAVAILABLE",
+      issues
+    };
+  }
+
+  const authStatus = await checkAuth(provider);
+  if (authStatus === "MISSING") {
+    issues.push(`Authentication required. Run: ${spec.authFixCommand}`);
+  }
+
+  if (provider === "codex" && process.platform === "win32") {
+    issues.push(spec.windowsNotes ?? "Codex may be less stable on native Windows.");
+  }
+
+  return {
+    provider,
+    installed,
+    versionInstalled,
+    versionLatest,
+    authStatus,
+    healthStatus: authStatus === "OK" ? "HEALTHY" : "DEGRADED",
+    issues
+  };
+}
+
+async function lookupLatestVersion(npmPackage: string): Promise<string | undefined> {
+  try {
+    const result = await runCommand("npm", ["view", npmPackage, "version"], { timeoutMs: 30_000 });
+    if (result.code !== 0) {
+      return undefined;
+    }
+    const parsed = result.stdout.trim();
+    return parsed || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKNOWN"> {
+  if (provider === "gemini") {
+    return checkGeminiAuth();
+  }
+
+  const command = PROVIDER_SPECS[provider].authCheckCommand;
+  if (!command || command.length === 0) {
+    return "UNKNOWN";
+  }
+
+  try {
+    const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 30_000 });
+    const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+    if (text.includes("not logged") || text.includes("sign in") || text.includes("authentication required")) {
+      return "MISSING";
+    }
+    if (result.code !== 0) {
+      return "UNKNOWN";
+    }
+    return "OK";
+  } catch {
+    return "UNKNOWN";
+  }
+}
+
+async function checkGeminiAuth(): Promise<"OK" | "MISSING" | "UNKNOWN"> {
+  try {
+    const result = await runCommand("gemini", ["--prompt", "health-check", "--output-format", "json"], { timeoutMs: 30_000 });
+    const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+    if (text.includes("api key") || text.includes("auth") || text.includes("login") || text.includes("credentials")) {
+      return "MISSING";
+    }
+    if (result.code !== 0) {
+      return "UNKNOWN";
+    }
+    return "OK";
+  } catch {
+    return "UNKNOWN";
+  }
+}
+
+function parseVersion(text: string): string | null {
+  const match = text.match(/(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/);
+  return match?.[1] ?? null;
+}
+
+function isOutdated(status: ProviderStatus): boolean {
+  return Boolean(status.installed && status.versionInstalled && status.versionLatest && status.versionInstalled !== status.versionLatest);
+}
+
+function sortUnique(commands: string[]): string[] {
+  return [...new Set(commands)];
+}
+
+export function buildInstallPlan(statuses: ProviderStatus[], options: PreflightOptions = {}): InstallPlan {
+  const missing = statuses.filter((status) => !status.installed).map((status) => status.provider);
+  const outdated = statuses.filter((status) => isOutdated(status)).map((status) => status.provider);
+
+  const commands: string[] = [];
+  for (const provider of missing) {
+    const spec = PROVIDER_SPECS[provider];
+    commands.push(`npm install -g ${spec.npmPackage}@latest`);
+    const fallback = spec.installFallbackByOs[process.platform as "win32" | "darwin" | "linux"];
+    if (fallback) {
+      commands.push(`# fallback: ${fallback}`);
+    }
+  }
+
+  if (options.upgradeProviders && options.upgradeProviders !== "never") {
+    for (const provider of outdated) {
+      const spec = PROVIDER_SPECS[provider];
+      commands.push(`npm install -g ${spec.npmPackage}@latest`);
+    }
+  }
+
+  const requiresPrompt =
+    (missing.length > 0 || outdated.length > 0) &&
+    (options.installMissing ?? "prompt") === "prompt";
+
+  return {
+    missing,
+    outdated,
+    commands: sortUnique(commands),
+    requiresPrompt
+  };
+}
+
+async function performInstallCommands(commands: string[]): Promise<boolean> {
+  for (const command of commands) {
+    if (command.startsWith("#")) {
+      continue;
+    }
+    const result = await runShellLine(command, { timeoutMs: 180_000 });
+    if (result.code !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function applyInstallPlan(
+  plan: InstallPlan,
+  options: PreflightOptions = {}
+): Promise<{ installResult: InstallResult; shouldContinue: boolean }> {
+  const installMode = options.installMissing ?? "prompt";
+
+  if (plan.commands.length === 0) {
+    return {
+      installResult: {
+        success: [],
+        failed: [],
+        skipped: [],
+        reasonCodes: []
+      },
+      shouldContinue: true
+    };
+  }
+
+  let approved = installMode === "auto";
+  if (installMode === "never") {
+    return {
+      installResult: {
+        success: [],
+        failed: [],
+        skipped: [...plan.missing, ...plan.outdated],
+        reasonCodes: [REASON_CODES.PROVIDER_MISSING]
+      },
+      shouldContinue: false
+    };
+  }
+
+  if (!approved) {
+    if (options.nonInteractive) {
+      return {
+        installResult: {
+          success: [],
+          failed: [],
+          skipped: [...plan.missing, ...plan.outdated],
+          reasonCodes: [REASON_CODES.PROVIDER_MISSING]
+        },
+        shouldContinue: false
+      };
+    }
+    const message = `Install/upgrade provider CLIs now?\n${plan.commands.join("\n")}`;
+    approved = await promptYesNo(message, false);
+  }
+
+  if (!approved) {
+    return {
+      installResult: {
+        success: [],
+        failed: [],
+        skipped: [...plan.missing, ...plan.outdated],
+        reasonCodes: [REASON_CODES.PROVIDER_MISSING]
+      },
+      shouldContinue: false
+    };
+  }
+
+  const ok = await performInstallCommands(plan.commands);
+
+  return {
+    installResult: {
+      success: ok ? [...plan.missing, ...plan.outdated] : [],
+      failed: ok ? [] : [...plan.missing, ...plan.outdated],
+      skipped: [],
+      reasonCodes: ok ? [] : [REASON_CODES.INSTALL_FAILED]
+    },
+    shouldContinue: ok
+  };
+}
+
+export async function runPreflight(
+  providers: ProviderId[],
+  options: PreflightOptions = {}
+): Promise<PreflightSummary> {
+  const statuses = await checkProviders(providers);
+  const plan = buildInstallPlan(statuses, options);
+  const reasonCodes: ReasonCode[] = [];
+
+  let installResult: InstallResult | undefined;
+  if (plan.commands.length > 0) {
+    if (options.upgradeProviders === "required" && plan.outdated.length > 0) {
+      const installOutcome = await applyInstallPlan(plan, {
+        ...options,
+        installMissing: options.installMissing ?? "prompt"
+      });
+      installResult = installOutcome.installResult;
+      if (!installOutcome.shouldContinue) {
+        reasonCodes.push(REASON_CODES.PROVIDER_OUTDATED);
+      }
+    } else if (plan.missing.length > 0 || options.upgradeProviders === "prompt" || options.installMissing === "auto") {
+      const installOutcome = await applyInstallPlan(plan, options);
+      installResult = installOutcome.installResult;
+      if (!installOutcome.shouldContinue) {
+        reasonCodes.push(REASON_CODES.PROVIDER_MISSING);
+      }
+    }
+  }
+
+  return {
+    statuses,
+    installPlan: plan,
+    installResult,
+    reasonCodes
+  };
+}

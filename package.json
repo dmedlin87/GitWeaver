@@ -1,0 +1,33 @@
+{
+  "name": "gitweaver-orchestrator",
+  "version": "0.1.0",
+  "description": "CLI-driven heterogeneous orchestrator for Codex, Claude, and Gemini",
+  "type": "module",
+  "bin": {
+    "orchestrator": "dist/cli/main.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist .orchestrator",
+    "dev": "tsx src/cli/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "minimatch": "^10.1.1",
+    "node-pty": "^1.0.0",
+    "ts-morph": "^27.0.2",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.0"
+  }
+}
