@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import type { RunRecord, TaskRecord } from "../core/types.js";
@@ -14,7 +14,9 @@ export class OrchestratorDb {
   }
 
   public migrate(): void {
-    const migrationPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url));
+    const bundledPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url));
+    const sourceFallback = join(process.cwd(), "src", "persistence", "migrations", "001_init.sql");
+    const migrationPath = existsSync(bundledPath) ? bundledPath : sourceFallback;
     const sql = readFileSync(migrationPath, "utf8");
     this.db.exec(sql);
   }
