@@ -272,6 +272,10 @@ export async function runPreflight(
   const statuses = await checkProviders(providers);
   const plan = buildInstallPlan(statuses, options);
   const reasonCodes: ReasonCode[] = [];
+  const missingAuthProviders = statuses.filter((status) => status.authStatus === "MISSING").map((status) => status.provider);
+  if (missingAuthProviders.length > 0) {
+    reasonCodes.push(REASON_CODES.AUTH_MISSING);
+  }
 
   let installResult: InstallResult | undefined;
   if (plan.commands.length > 0) {

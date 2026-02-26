@@ -522,18 +522,37 @@ export class Orchestrator {
 
   private async preflightStageA(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
     const preflight = await runPreflight(["codex"], options);
+    ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_A", {
+      statuses: preflight.statuses,
+      installPlan: preflight.installPlan,
+      reasonCodes: preflight.reasonCodes
+    });
     if (preflight.reasonCodes.length > 0) {
       throw this.errorWithCode("Preflight stage A failed", preflight.reasonCodes[0] ?? REASON_CODES.ABORTED_POLICY);
     }
-    ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_A", { statuses: preflight.statuses, installPlan: preflight.installPlan });
   }
 
   private async preflightStageB(ctx: RuntimeContext, providers: ProviderId[], options: RunCliOptions): Promise<void> {
     const preflight = await runPreflight(providers, options);
+    ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_B", {
+      statuses: preflight.statuses,
+      installPlan: preflight.installPlan,
+      reasonCodes: preflight.reasonCodes
+    });
+
+    const missingAuthProviders = preflight.statuses
+      .filter((status) => status.authStatus === "MISSING")
+      .map((status) => status.provider);
+    if (missingAuthProviders.length > 0) {
+      throw this.errorWithCode(
+        `Preflight stage B failed: missing auth for providers ${missingAuthProviders.join(", ")}`,
+        REASON_CODES.AUTH_MISSING
+      );
+    }
+
     if (preflight.reasonCodes.length > 0) {
       throw this.errorWithCode("Preflight stage B failed", preflight.reasonCodes[0] ?? REASON_CODES.ABORTED_POLICY);
     }
-    ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_B", { statuses: preflight.statuses, installPlan: preflight.installPlan });
   }
 
   private async ensureBaseline(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
