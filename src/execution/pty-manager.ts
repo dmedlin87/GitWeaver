@@ -94,12 +94,12 @@ export class PtyManager {
 
   private killTree(ptyModule: NodePtyModule, pid: number): void {
     if (process.platform === "win32") {
-      ptyModule.spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-        name: "xterm-color",
-        cols: 80,
-        rows: 20,
-        cwd: process.cwd(),
-        env: process.env as NodeJS.ProcessEnv
+      void runCommand("taskkill", ["/PID", String(pid), "/T", "/F"], { timeoutMs: 10_000 }).catch(() => {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          // no-op
+        }
       });
       return;
     }
