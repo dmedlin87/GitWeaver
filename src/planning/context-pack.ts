@@ -50,7 +50,13 @@ export function buildContextPack(repoPath: string, task: TaskContract, byteBudge
     }
   }
 
-  const ordered = [...unique.values()].sort((a, b) => tierOrder(a.tier) - tierOrder(b.tier));
+  const ordered = [...unique.values()].sort((a, b) => {
+    const tierDiff = tierOrder(a.tier) - tierOrder(b.tier);
+    if (tierDiff !== 0) {
+      return tierDiff;
+    }
+    return a.path.localeCompare(b.path);
+  });
 
   const must: ContextPack["must"] = [];
   const should: ContextPack["should"] = [];

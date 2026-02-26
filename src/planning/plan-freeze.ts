@@ -20,11 +20,24 @@ function freezeTask(task: TaskContract): TaskContract {
 }
 
 export function freezePlan(dag: DagSpec): FrozenPlan {
-  const frozenNodes = dag.nodes.map((node) => freezeTask(node));
+  // Sort nodes and edges for deterministic hashing
+  const frozenNodes = dag.nodes
+    .map((node) => freezeTask(node))
+    .sort((a, b) => a.taskId.localeCompare(b.taskId));
+
+  const sortedEdges = [...dag.edges].sort((a, b) => {
+    const fromDiff = a.from.localeCompare(b.from);
+    if (fromDiff !== 0) {
+      return fromDiff;
+    }
+    return a.to.localeCompare(b.to);
+  });
+
   const frozenDag: DagSpec = {
     ...dag,
     nodes: frozenNodes,
-    dagHash: sha256(stableStringify({ nodes: frozenNodes, edges: dag.edges }))
+    edges: sortedEdges,
+    dagHash: sha256(stableStringify({ nodes: frozenNodes, edges: sortedEdges }))
   };
 
   const taskContractHashes = frozenNodes.reduce<Record<string, string>>((acc, node) => {
