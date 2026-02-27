@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderId } from "../core/types.js";
 
@@ -31,14 +31,14 @@ export async function createSandboxHome(runId: string, taskId: string, provider:
   const home = join(tmpdir(), "orc-home", runId, taskId);
   await fs.mkdir(home, { recursive: true });
 
-  const tasks = [];
+  const tasks: Promise<void>[] = [];
   for (const source of providerConfigPaths(provider)) {
     tasks.push(
       (async () => {
         if (!(await fileExists(source))) {
           return;
         }
-        const target = join(home, source.split(/[\\/]/).pop() ?? "provider-config");
+        const target = join(home, basename(source));
         await fs.cp(source, target, { recursive: true, errorOnExist: false, force: true });
       })()
     );

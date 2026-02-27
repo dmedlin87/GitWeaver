@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { buildSandboxEnv, createSandboxHome } from "../../src/execution/sandbox-env.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync, mkdirSync, rmdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "node:fs";
 
 describe("buildSandboxEnv", () => {
   it("filters unsafe variables", () => {
@@ -35,44 +35,49 @@ describe("buildSandboxEnv", () => {
 });
 
 describe("createSandboxHome", () => {
-  const mockHome = join(tmpdir(), "orch-test-home");
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+  const tempHome = join(tmpdir(), "orch-test-home-" + Date.now());
 
   beforeEach(() => {
-    if (existsSync(mockHome)) {
-      rmSync(mockHome, { recursive: true, force: true });
-    }
-    mkdirSync(mockHome, { recursive: true });
-    process.env.HOME = mockHome;
-    process.env.USERPROFILE = mockHome;
+    mkdirSync(tempHome, { recursive: true });
+    process.env.HOME = tempHome;
+    // Also mock USERPROFILE for Windows compatibility if the code checks it first
+    process.env.USERPROFILE = tempHome;
   });
 
   afterEach(() => {
-    if (existsSync(mockHome)) {
-      rmSync(mockHome, { recursive: true, force: true });
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
     }
+
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+
+    rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it("creates sandbox home and copies provider config", async () => {
-    const configPath = join(mockHome, ".codex");
-    writeFileSync(configPath, "dummy-config");
+  it("copies provider config files", async () => {
+    const codexConfig = join(tempHome, ".codex");
+    writeFileSync(codexConfig, "config content");
 
-    const runId = "test-run";
-    const taskId = "task-1";
+    const sandbox = await createSandboxHome("run1", "task1", "codex");
+    const targetConfig = join(sandbox, ".codex");
 
-    // @ts-expect-error - testing specific provider logic
-    const sandboxPath = await createSandboxHome(runId, taskId, "codex");
+    expect(existsSync(targetConfig)).toBe(true);
+    expect(readFileSync(targetConfig, "utf-8")).toBe("config content");
 
-    expect(existsSync(sandboxPath)).toBe(true);
-    expect(existsSync(join(sandboxPath, ".codex"))).toBe(true);
+    // Clean up sandbox
+    rmSync(sandbox, { recursive: true, force: true });
   });
 
   it("handles missing provider config gracefully", async () => {
-    const runId = "test-run-2";
-    const taskId = "task-2";
-
-    // @ts-expect-error - testing specific provider logic
-    const sandboxPath = await createSandboxHome(runId, taskId, "codex");
-
+    const sandboxPath = await createSandboxHome("run1", "task2", "codex");
     expect(existsSync(sandboxPath)).toBe(true);
     expect(existsSync(join(sandboxPath, ".codex"))).toBe(false);
   });
