@@ -148,11 +148,9 @@ export class Orchestrator {
         contractHash: node.contractHash
       }));
 
-      db.transaction(() => {
-        for (const task of taskRecords) {
-          db.upsertTask(task);
-        }
-      });
+      for (const task of taskRecords) {
+        db.upsertTask(task);
+      }
 
       const outcome = await this.executeDag(ctx, frozenDag, taskRecords, options);
       return outcome;
@@ -262,6 +260,7 @@ export class Orchestrator {
     const running = new Map<string, Promise<void>>();
 
     while (!this.allTerminal(stateByTask)) {
+      const readyTasks: TaskRecord[] = [];
       for (const task of taskById.values()) {
         const record = stateByTask.get(task.taskId);
         if (!record || record.state !== "PENDING") {
@@ -269,7 +268,7 @@ export class Orchestrator {
         }
         if (this.dependenciesMet(task, dependencyMap, stateByTask)) {
           record.state = "READY";
-          ctx.db.upsertTask(record);
+          readyTasks.push(record);
           ctx.events.append(ctx.run.runId, "TASK_READY", { taskId: task.taskId });
           this.progress(ctx, "task_ready", `Task ${task.taskId} is ready`, {
             taskId: task.taskId,
@@ -277,6 +276,14 @@ export class Orchestrator {
           });
           scheduler.enqueue(task);
         }
+      }
+
+      if (readyTasks.length > 0) {
+        ctx.db.transaction(() => {
+          for (const task of readyTasks) {
+            ctx.db.upsertTask(task);
+          }
+        });
       }
 
       while (running.size < (options.concurrency ?? ctx.config.concurrencyCap)) {
