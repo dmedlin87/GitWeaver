@@ -36,6 +36,7 @@ import { OrchestratorDb } from "../persistence/sqlite.js";
 import { EventLog } from "../persistence/event-log.js";
 import { writeRunManifest } from "../persistence/manifest.js";
 import { reconcileResume } from "../persistence/resume-reconcile.js";
+import { validateCommand } from "../verification/command-policy.js";
 
 export interface RunCliOptions extends PreflightOptions {
   prompt: string;
@@ -588,6 +589,11 @@ export class Orchestrator {
         }
 
         const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
+        const validation = validateCommand(gateCommand, task.commandPolicy);
+        if (!validation.allowed) {
+          throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
+        }
+
         const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000);
         ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
         if (!gate.ok) {
