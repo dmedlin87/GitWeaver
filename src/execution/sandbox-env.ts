@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderId } from "../core/types.js";
 
@@ -26,7 +26,7 @@ export function createSandboxHome(runId: string, taskId: string, provider: Provi
     if (!existsSync(source)) {
       continue;
     }
-    const target = join(home, source.split(/[\\/]/).pop() ?? "provider-config");
+    const target = join(home, basename(source));
     cpSync(source, target, { recursive: true, errorOnExist: false, force: true });
   }
 
