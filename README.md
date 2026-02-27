@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/gitweaver-mascot-abstract.svg" alt="GitWeaver Mascot" width="300" />
+  <img src="assets/gitweaver-mascot-final.png" alt="GitWeaver Mascot" width="300" />
   
   <h1>🧙‍♂️ GitWeaver Orchestrator</h1>
   
