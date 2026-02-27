@@ -1,7 +1,16 @@
 import type { SecureExecutor } from "./secure-executor.js";
 
 const ALLOWLIST = ["PATH", "SystemRoot", "ComSpec", "HOME", "USERPROFILE", "TMP", "TEMP", "CI", "NODE_ENV"];
-const DENYLIST = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "AWS_SECRET_ACCESS_KEY"];
+const DENYLIST = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GOOGLE_API_KEY",
+  "GEMINI_API_KEY",
+  "AWS_SECRET_ACCESS_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "NPM_TOKEN"
+];
 
 export class AdvisoryExecutor implements SecureExecutor {
   public prepareEnvironment(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

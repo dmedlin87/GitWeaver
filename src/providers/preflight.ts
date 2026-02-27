@@ -60,11 +60,14 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
     };
   }
 
-  const authStatus = await checkAuth(provider);
-  if (authStatus === "MISSING") {
+  const authResult = await checkAuth(provider);
+  if (authResult.status === "MISSING") {
     issues.push(`Authentication required. Run: ${spec.authFixCommand}`);
-  } else if (authStatus === "UNKNOWN") {
-    issues.push("Authentication status unknown (check timed out or failed).");
+    if (authResult.detail) {
+      issues.push(`Details: ${authResult.detail}`);
+    }
+  } else if (authResult.status === "UNKNOWN") {
+    issues.push(`Authentication status unknown: ${authResult.detail ?? "check timed out or failed"}`);
   }
 
   if (provider === "codex" && process.platform === "win32") {
@@ -76,8 +79,8 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
     installed,
     versionInstalled,
     versionLatest,
-    authStatus,
-    healthStatus: authStatus === "OK" ? "HEALTHY" : "DEGRADED",
+    authStatus: authResult.status,
+    healthStatus: authResult.status === "OK" ? "HEALTHY" : "DEGRADED",
     issues
   };
 }
@@ -95,32 +98,37 @@ async function lookupLatestVersion(npmPackage: string): Promise<string | undefin
   }
 }
 
-async function checkAuth(provider: ProviderId): Promise<"OK" | "MISSING" | "UNKNOWN"> {
+interface AuthCheckResult {
+  status: "OK" | "MISSING" | "UNKNOWN";
+  detail?: string;
+}
+
+async function checkAuth(provider: ProviderId): Promise<AuthCheckResult> {
   if (provider === "gemini") {
     return checkGeminiAuth();
   }
 
   const command = PROVIDER_SPECS[provider].authCheckCommand;
   if (!command || command.length === 0) {
-    return "UNKNOWN";
+    return { status: "UNKNOWN", detail: "No auth check command defined" };
   }
 
   try {
     const result = await runCommand(PROVIDER_SPECS[provider].binary, command, { timeoutMs: 20_000 });
     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
     if (text.includes("not logged") || text.includes("sign in") || text.includes("authentication required")) {
-      return "MISSING";
+      return { status: "MISSING", detail: result.stderr.trim() || result.stdout.trim() };
     }
     if (result.code !== 0) {
-      return "UNKNOWN";
+      return { status: "UNKNOWN", detail: `Exit code ${result.code}: ${result.stderr.trim()}` };
     }
-    return "OK";
-  } catch {
-    return "UNKNOWN";
+    return { status: "OK" };
+  } catch (err) {
+    return { status: "UNKNOWN", detail: (err as Error).message };
   }
 }
 
-async function checkGeminiAuth(): Promise<"OK" | "MISSING" | "UNKNOWN"> {
+async function checkGeminiAuth(): Promise<AuthCheckResult> {
   try {
     const result = await runCommand(
       "gemini",
@@ -129,14 +137,16 @@ async function checkGeminiAuth(): Promise<"OK" | "MISSING" | "UNKNOWN"> {
     );
     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
     if (isGeminiAuthMissingText(text)) {
-      return "MISSING";
+      return { status: "MISSING", detail: result.stderr.trim() || result.stdout.trim() };
     }
     if (isGeminiAuthConfirmedText(text)) {
-      return "OK";
+      return { status: "OK" };
     }
-    return result.code === 0 ? "OK" : "UNKNOWN";
-  } catch {
-    return "UNKNOWN";
+    return result.code === 0
+      ? { status: "OK" }
+      : { status: "UNKNOWN", detail: `Exit code ${result.code}: ${result.stderr.trim()}` };
+  } catch (err) {
+    return { status: "UNKNOWN", detail: (err as Error).message };
   }
 }
 
