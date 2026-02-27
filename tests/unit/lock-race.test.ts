@@ -83,4 +83,24 @@ describe("Concurrency Audit: Lock Leasing & Merge Queue", () => {
     const lease3 = lockManager.tryAcquireWrite([resource], "task-1");
     expect(lease3![0].fencingToken).toBe(3);
   });
+
+  it("REGRESSION: rejects renewal of expired lease", async () => {
+    const lockManager = new LockManager(50);
+    const resource = "db:row:1";
+
+    const lease = lockManager.tryAcquireWrite([resource], "task-1");
+    expect(lease).not.toBeNull();
+    const token = lease![0].fencingToken;
+
+    // Wait for expire
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // Try renew
+    const renewed = lockManager.renew(resource, "task-1", token);
+    expect(renewed).toBe(false);
+
+    // Verify lock is actually gone/expired
+    const valid = lockManager.validateFencing(resource, "task-1", token);
+    expect(valid).toBe(false);
+  });
 });
