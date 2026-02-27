@@ -7,14 +7,35 @@ export interface FrozenPlan {
   immutablePlanHash: string;
 }
 
-function freezeTask(task: TaskContract): TaskContract {
-  const stableTask = {
-    ...task,
-    contractHash: task.contractHash || ""
-  };
-  const hash = sha256(stableStringify({ ...stableTask, contractHash: undefined }));
+function sortTaskArrays(task: TaskContract): TaskContract {
   return {
     ...task,
+    dependencies: [...task.dependencies].sort(),
+    writeScope: {
+      ...task.writeScope,
+      allow: [...task.writeScope.allow].sort(),
+      deny: [...task.writeScope.deny].sort()
+    },
+    commandPolicy: {
+      ...task.commandPolicy,
+      allow: [...task.commandPolicy.allow].sort(),
+      deny: [...task.commandPolicy.deny].sort()
+    },
+    artifactIO: {
+      consumes: task.artifactIO.consumes ? [...task.artifactIO.consumes].sort() : undefined,
+      produces: task.artifactIO.produces ? [...task.artifactIO.produces].sort() : undefined
+    }
+  };
+}
+
+function freezeTask(task: TaskContract): TaskContract {
+  const stableTask = sortTaskArrays({
+    ...task,
+    contractHash: task.contractHash || ""
+  });
+  const hash = sha256(stableStringify({ ...stableTask, contractHash: undefined }));
+  return {
+    ...stableTask,
     contractHash: hash
   };
 }
