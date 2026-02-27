@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { minimatch } from "minimatch";
 
@@ -27,21 +27,6 @@ function canonicalize(repoRoot: string, inputPath: string): string | null {
   const rel = relative(repoRoot, real);
   if (rel.startsWith("..") || rel.includes(`..${sep}`)) {
     return null;
-  }
-
-  if (existsSync(normalized)) {
-    try {
-      const stat = lstatSync(normalized);
-      if (stat.isSymbolicLink()) {
-        const linkReal = realpathSync(normalized);
-        const linkRel = relative(repoRoot, linkReal);
-        if (linkRel.startsWith("..") || linkRel.includes(`..${sep}`)) {
-          return null;
-        }
-      }
-    } catch {
-      return null;
-    }
   }
 
   return normalizeForComparison(rel);
