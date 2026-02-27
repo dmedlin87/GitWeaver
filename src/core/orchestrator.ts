@@ -581,7 +581,7 @@ export class Orchestrator {
           }
         }
 
-        await this.integrateCommit(ctx, task, commitHash, leases[0]?.fencingToken ?? 0);
+        await this.integrateCommit(ctx, task, commitHash, leases[0]?.fencingToken ?? 0, leases[0]?.resourceKey, lockManager);
 
         const verify = verifyTaskOutput(ctx.run.repoPath, task);
         if (!verify.ok) {
@@ -691,8 +691,19 @@ export class Orchestrator {
     }
   }
 
-  private async integrateCommit(ctx: RuntimeContext, task: TaskContract, commitHash: string, fencingToken: number): Promise<void> {
+  private async integrateCommit(
+    ctx: RuntimeContext,
+    task: TaskContract,
+    commitHash: string,
+    fencingToken: number,
+    resourceKey: string | undefined,
+    lockManager: LockManager
+  ): Promise<void> {
     this.transitionRun(ctx, "INTEGRATING");
+
+    if (resourceKey && !lockManager.validateFencing(resourceKey, task.taskId, fencingToken)) {
+      throw this.errorWithCode(`Fencing token invalid or expired immediately before integrate`, REASON_CODES.LOCK_TIMEOUT);
+    }
 
     const pick = await runCommand("git", ["-C", ctx.run.repoPath, "cherry-pick", commitHash], { timeoutMs: 60_000 });
     if (pick.code !== 0) {

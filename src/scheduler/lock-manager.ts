@@ -19,8 +19,12 @@ export class LockManager {
 
     for (const key of resourceKeys) {
       const existing = this.leasesByKey.get(key);
-      if (existing && new Date(existing.lease.expiresAt).getTime() > now && existing.lease.ownerTaskId !== ownerTaskId) {
-        return null;
+      if (existing) {
+        // If lease is expired, we can steal it
+        const expired = new Date(existing.lease.expiresAt).getTime() <= now;
+        if (!expired && existing.lease.ownerTaskId !== ownerTaskId) {
+          return null;
+        }
       }
     }
 
@@ -62,11 +66,18 @@ export class LockManager {
     if (!current) {
       return false;
     }
+
+    // Strict validation of ownership and token
     if (current.lease.ownerTaskId !== ownerTaskId || current.lease.fencingToken !== fencingToken) {
       return false;
     }
 
     const now = Date.now();
+    // Cannot renew an expired lease
+    if (new Date(current.lease.expiresAt).getTime() <= now) {
+      return false;
+    }
+
     const expiresAt = new Date(now + this.leaseDurationMs).toISOString();
     const updated: LockLease = {
       ...current.lease,
