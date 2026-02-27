@@ -26,6 +26,9 @@ export class OrchestratorDb {
     this.db.exec("BEGIN");
     try {
       const result = fn();
+      if (result instanceof Promise) {
+        throw new Error("Async callbacks are not supported in synchronous transactions. Use a synchronous function.");
+      }
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
