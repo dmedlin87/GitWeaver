@@ -23,7 +23,7 @@ export class OrchestratorDb {
   }
 
   public transaction<T>(fn: () => T): T {
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
     try {
       const result = fn();
       this.db.exec("COMMIT");
