@@ -1,5 +1,6 @@
 import { redactSensitive } from "../observability/redaction.js";
 import { runCommand } from "../core/shell.js";
+import { killProcessTree } from "./watchdog.js";
 
 export interface PtyRunOptions {
   cwd: string;
@@ -99,25 +100,11 @@ export class PtyManager {
 
   private killTree(ptyModule: NodePtyModule, pid: number): void {
     if (process.platform === "win32") {
-      void runCommand("taskkill", ["/PID", String(pid), "/T", "/F"], { timeoutMs: 10_000 }).catch(() => {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {
-          // no-op
-        }
-      });
+      void killProcessTree(pid).catch(() => undefined);
       return;
     }
 
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // no-op
-      }
-    }
+    void killProcessTree(pid).catch(() => undefined);
   }
 }
 

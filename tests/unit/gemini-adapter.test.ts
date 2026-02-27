@@ -42,7 +42,8 @@ describe("GeminiAdapter", () => {
       provider: "gemini",
       exitCode: 0,
       stdout: "{\"status\":\"ok\"}",
-      stderr: ""
+      stderr: "",
+      rawOutput: "{\"status\":\"ok\"}"
     });
   });
 

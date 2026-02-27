@@ -96,6 +96,11 @@ describe("Orchestrator Policy Enforcement", () => {
       },
       config: {
         baselineGateCommand: "pnpm test",
+        defaultNetworkPolicy: "deny",
+        executionMode: "host",
+        containerRuntime: "docker",
+        containerImage: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        forensicRawLogs: false,
         leaseDurationSec: 60,
         leaseRenewSec: 30,
         heartbeatTimeoutSec: 60,
@@ -113,11 +118,23 @@ describe("Orchestrator Policy Enforcement", () => {
         removeLeasesByTask: () => {},
         transaction: (fn: any) => fn(),
         recordRepairEvent: () => {},
-        upsertRun: () => {} // Added mock for upsertRun called by persistRun
+        upsertRun: () => {}, // Added mock for upsertRun called by persistRun
+        upsertProviderHealth: () => {},
+        upsertResumeCheckpoint: () => {}
       },
       events: {
-        append: () => {}
+        append: () => ({ seq: 1 })
       },
+      secureExecutor: {
+        prepareEnvironment: (env: NodeJS.ProcessEnv) => env,
+        networkAllowed: () => true,
+        modeName: () => "host"
+      },
+      providerHealth: {
+        onSuccess: (provider: string) => ({ provider, score: 100, lastErrors: [], tokenBucket: 1 }),
+        onFailure: (provider: string) => ({ provider, score: 0, lastErrors: [], tokenBucket: 1 })
+      },
+      runDir: "/tmp/run",
       onProgress: () => {}
     };
   });
@@ -131,13 +148,16 @@ describe("Orchestrator Policy Enforcement", () => {
       writeScope: { allow: ["src/test.ts"], deny: [] },
       commandPolicy: {
         allow: ["pnpm test"],
-        deny: ["rm -rf"]
+        deny: ["rm -rf"],
+        network: "deny"
       },
       verify: {
         gateCommand: "rm -rf /",
         outputVerificationRequired: false
       },
-      artifactIO: {}
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
     };
 
     const record = { attempts: 0, state: "PENDING" };
@@ -168,13 +188,16 @@ describe("Orchestrator Policy Enforcement", () => {
       writeScope: { allow: ["src/test.ts"], deny: [] },
       commandPolicy: {
         allow: ["pnpm"],
-        deny: ["fail"]
+        deny: ["fail"],
+        network: "deny"
       },
       verify: {
         gateCommand: "pnpm run fail",
         outputVerificationRequired: false
       },
-      artifactIO: {}
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
     };
 
     const record = { attempts: 0, state: "PENDING" };

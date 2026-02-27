@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS provider_health (
   score INTEGER NOT NULL,
   last_errors TEXT NOT NULL,
   token_bucket INTEGER NOT NULL,
+  cooldown_until TEXT,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  backoff_sec INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (run_id, provider)
 );
@@ -102,6 +105,8 @@ CREATE TABLE IF NOT EXISTS repair_events (
 
 CREATE TABLE IF NOT EXISTS resume_checkpoints (
   run_id TEXT PRIMARY KEY,
+  task_id TEXT,
+  state TEXT,
   event_seq INTEGER NOT NULL,
   commit_hash TEXT NOT NULL,
   updated_at TEXT NOT NULL

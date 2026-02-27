@@ -13,11 +13,11 @@ The core runtime exists and is functional: planning, routing, isolated worktrees
 
 Major remaining work is not the basic pipeline, but PRD alignment hardening:
 
-- stronger provenance/observability
-- recovery precedence completeness
+- SQLite contention/durability hardening
 - scheduler resilience behavior under provider degradation
+- security boundary enforcement (host filtering + optional container mode)
 - watchdog/forensic execution guarantees
-- hardened test matrix coverage
+- stale re-plan flow and hardened matrix coverage
 
 ## Delivered In This PR Slice
 
@@ -35,18 +35,25 @@ Major remaining work is not the basic pipeline, but PRD alignment hardening:
 - Recovery precedence coverage expanded:
   - integration tests now cover event-log precedence, event-only recovery, ambiguous escalation, and git-over-event conflict resolution.
 
-## Remaining Work (What Is Left)
+## Validated Gaps (Canonical)
 
-| Priority | PRD Reference | Gap | Current Evidence |
+Completed and explicitly removed from “remaining work”:
+
+- Dry-run mode is already implemented (`src/cli/commands/run.ts`).
+- AST-backed output checks are already implemented (`src/verification/output-verifier.ts` with `ts-morph`).
+- Resume precedence `git -> event log -> sqlite` is already implemented and integration-tested (`tests/integration/resume-reconcile*.test.ts`).
+
+Canonical remaining gaps (owner + acceptance criteria):
+
+| Priority | Owner | Gap | Acceptance Criteria |
 | --- | --- | --- | --- |
-| P0 | 16.2 Recovery Algorithm | Resume reconciliation does not fully apply precedence `git -> event log -> sqlite`; event log is only lightly consulted. | `src/persistence/resume-reconcile.ts` uses git + sqlite heavily, with minimal event-log influence. |
-| P0 | 21. Hardened Test Matrix (7, 9) | No crash-mid-merge recovery test and no deterministic escalation payload test for bounded merge-conflict retries. | Missing integration/e2e coverage for those cases in `tests/**`. |
-| P1 | 18.1 Run Manifest | Manifest still lacks provider capabilities and prompt template hash lineage. | Provider versions are now populated, but capability metadata/template lineage are still absent. |
-| P1 | 10.1 Scheduler | No provider health backoff/score feedback loop under 429/timeout storm conditions. | Scheduler currently uses static token buckets and queue aging only. |
-| P1 | 12.2 PtySubprocessManager | Raw-vs-normalized forensic log policy is not fully wired through runtime artifacts. | `PtyManager` can normalize output; runtime does not persist raw forensic streams. |
-| P1 | 14.3 Staleness/Drift | Stale detection exists, but retry policy does not yet implement re-plan path when contract invalidation is detected. | `detectStaleness` + repair path present; no explicit re-plan branch. |
-| P2 | 11.1 Context Assembler | Context pack does not yet include import-graph neighborhood/closure expansion beyond baseline + allowlist + consumed artifacts. | `src/planning/context-pack.ts` currently selects deterministic direct candidates only. |
-| P2 | 21. Hardened Test Matrix (2, 3, 5, 6) | Missing stress/edge coverage for retry drift injection, symlink traversal, provider storm backoff, and hang watchdog retry behavior. | Existing tests cover pieces, but matrix is incomplete end-to-end. |
+| P0 | Runtime/Persistence | SQLite contention and deterministic retry handling under `SQLITE_BUSY`. | WAL + busy timeout configured, bounded retry telemetry emitted, stress tests green on Windows/Linux. |
+| P0 | Runtime/Scheduler | Provider health feedback and cooldown circuit breaker under 429/timeout storms. | Backoff/cooldown routing tests pass; provider recovery path proven; no retry storm loops. |
+| P1 | Runtime/Security | Secure executor path wiring and optional container execution mode for policy enforcement. | Env filtering active for provider/gate calls; container mode enforces network policy; host mode remains backward-compatible. |
+| P1 | Runtime/Execution | Watchdog + forensic raw log capture complete and policy-gated. | Raw logs only persisted when enabled; normalized redacted output remains default artifact. |
+| P1 | Runtime/Recovery | Explicit merge-in-flight checkpoint handling in resume path. | Deterministic resume decision includes checkpoint-aware requeue behavior. |
+| P2 | Runtime/Repair | Staleness-triggered re-plan branch (beyond narrow repair). | Tests prove stale-drift path chooses re-plan branch deterministically. |
+| P2 | Verification | Hardened matrix completion (crash-mid-merge, provider storm, watchdog hang, drift injection). | Missing matrix scenarios covered by integration/e2e tests. |
 
 ## Recommended PR Sequence (Ideal Size)
 
@@ -57,23 +64,23 @@ Ideal PR size target for this repo right now:
 - one operational theme per PR
 - includes tests proving the behavior
 
-### PR 1: Merge Lifecycle + Provenance Hardening
+### PR 1: SQLite Contention Hardening
 
-- Scope: add explicit merge lifecycle state/event provenance and route/manifest provenance improvements.
-- Target size: 250-450 LOC, 6-9 files.
-- Why first: low risk, high observability gain, unlocks later recovery and audit improvements.
+- Scope: WAL/synchronous/busy-timeout configuration and bounded busy retry telemetry.
+- Target size: 250-450 LOC, 5-8 files.
+- Why first: highest immediate stability win under concurrent orchestration writes.
 
-### PR 2: Resume Precedence Completion
-
-- Scope: fully apply `git -> event log -> sqlite` precedence, classify ambiguities deterministically, improve resume decision output.
-- Target size: 300-500 LOC, 5-8 files.
-- Why second: highest correctness risk reducer for crash recovery.
-
-### PR 3: Scheduler Resilience Loop
+### PR 2: Scheduler Resilience Loop
 
 - Scope: provider health scoring + temporary backoff + token adjustment behavior for repeated provider failures/timeouts.
 - Target size: 300-550 LOC, 6-10 files.
 - Why third: addresses reliability degradation under real load.
+
+### PR 3: Security Boundary Enforcement + Optional Container Mode
+
+- Scope: wire secure executor in provider/gate paths and add optional container execution mode.
+- Target size: 300-550 LOC, 6-10 files.
+- Why third: security hardening without forcing a breaking runtime default.
 
 ### PR 4: Watchdog and Forensic Logging
 
@@ -81,13 +88,19 @@ Ideal PR size target for this repo right now:
 - Target size: 250-450 LOC, 5-8 files.
 - Why fourth: improves operability without destabilizing orchestration semantics.
 
-### PR 5: Staleness Re-plan Path
+### PR 5: Resume Merge-In-Flight Checkpoints
+
+- Scope: persist integration checkpoints and use them during resume reconciliation.
+- Target size: 250-450 LOC, 5-8 files.
+- Why fifth: closes crash-window ambiguity around merge queue/integration handoff.
+
+### PR 6: Staleness Re-plan Path
 
 - Scope: when stale invalidates contract assumptions, trigger deterministic re-plan path instead of only narrow repair.
 - Target size: 300-500 LOC, 6-9 files.
 - Why fifth: closes stale-drift correctness loop.
 
-### PR 6: Hardened Matrix Completion
+### PR 7: Hardened Matrix Completion
 
 - Scope: add missing matrix scenarios as integration/e2e tests.
 - Target size: 250-450 LOC, 4-7 files.

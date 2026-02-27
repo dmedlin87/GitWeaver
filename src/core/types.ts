@@ -91,6 +91,9 @@ export interface ProviderHealthSnapshot {
   score: number;
   lastErrors: string[];
   tokenBucket: number;
+  cooldownUntil?: string;
+  consecutiveFailures?: number;
+  backoffSec?: number;
 }
 
 export interface ProviderSpec {

@@ -4,10 +4,14 @@ import { Orchestrator, printJson, type ProgressUpdate } from "../../core/orchest
 interface RunOptions {
   concurrency?: number;
   dryRun?: boolean;
+  dryRunReport?: "basic" | "detailed";
   config?: string;
   repo?: string;
   allowBaselineRepair?: boolean;
   acceptDrift?: boolean;
+  executionMode?: "host" | "container";
+  containerRuntime?: "docker" | "podman";
+  containerImage?: string;
   installMissing?: "prompt" | "never" | "auto";
   upgradeProviders?: "warn" | "never" | "prompt" | "required";
   nonInteractive?: boolean;
@@ -20,10 +24,14 @@ export function registerRunCommand(program: Command): void {
     .argument("<prompt>", "objective prompt")
     .option("--concurrency <n>", "maximum concurrent tasks", parseInteger)
     .option("--dry-run", "plan and audit without execution")
+    .option("--dry-run-report <mode>", "basic|detailed", "detailed")
     .option("--config <path>", "config JSON path")
     .option("--repo <path>", "repository root override")
     .option("--allow-baseline-repair", "continue when baseline gate fails")
     .option("--accept-drift", "accept baseline drift on resume/integration")
+    .option("--execution-mode <mode>", "host|container")
+    .option("--container-runtime <runtime>", "docker|podman")
+    .option("--container-image <image>", "container image for provider/gate execution")
     .option("--install-missing <mode>", "prompt|never|auto", "prompt")
     .option("--upgrade-providers <mode>", "warn|never|prompt|required", "warn")
     .option("--non-interactive", "disable interactive prompts")
@@ -48,6 +56,10 @@ export function registerRunCommand(program: Command): void {
         repo: opts.repo,
         allowBaselineRepair: opts.allowBaselineRepair,
         acceptDrift: opts.acceptDrift,
+        executionMode: opts.executionMode,
+        containerRuntime: opts.containerRuntime,
+        containerImage: opts.containerImage,
+        dryRunReport: opts.dryRunReport,
         installMissing: opts.installMissing,
         upgradeProviders: opts.upgradeProviders,
         nonInteractive: opts.nonInteractive,

@@ -45,6 +45,21 @@ function makeCtx(runDir: string): any {
     events: {
       append: () => undefined
     },
+    secureExecutor: {
+      prepareEnvironment: (env: NodeJS.ProcessEnv) => env,
+      networkAllowed: () => true,
+      modeName: () => "host"
+    },
+    providerHealth: {
+      snapshotAll: () => ({
+        codex: { provider: "codex", score: 100, lastErrors: [], tokenBucket: 1 },
+        claude: { provider: "claude", score: 100, lastErrors: [], tokenBucket: 2 },
+        gemini: { provider: "gemini", score: 100, lastErrors: [], tokenBucket: 2 }
+      }),
+      canDispatch: () => true,
+      onSuccess: (provider: string) => ({ provider, score: 100, lastErrors: [], tokenBucket: 1 }),
+      onFailure: (provider: string) => ({ provider, score: 50, lastErrors: [], tokenBucket: 1 })
+    },
     providerVersions: {},
     routeDecisions: []
   };

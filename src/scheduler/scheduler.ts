@@ -21,12 +21,17 @@ export class Scheduler {
     this.queue.enqueue(task.taskId, task, priority);
   }
 
-  public tryDispatch(): ScheduledTask | null {
+  public tryDispatch(canDispatch?: (task: ScheduledTask) => boolean): ScheduledTask | null {
     const snapshot = this.queue.size();
     for (let attempt = 0; attempt < snapshot; attempt += 1) {
       const candidate = this.queue.dequeue();
       if (!candidate) {
         return null;
+      }
+
+      if (canDispatch && !canDispatch(candidate)) {
+        this.queue.enqueue(candidate.taskId, candidate, candidate.priority ?? 0);
+        continue;
       }
 
       if (this.buckets.tryAcquire(candidate.provider)) {

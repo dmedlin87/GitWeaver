@@ -1,4 +1,5 @@
 import { runCommand } from "../../core/shell.js";
+import { runInContainer } from "../../execution/container-runner.js";
 import type { ProviderAdapter, ProviderExecutionRequest, ProviderExecutionResult } from "./types.js";
 
 export class GeminiAdapter implements ProviderAdapter {
@@ -6,18 +7,31 @@ export class GeminiAdapter implements ProviderAdapter {
 
   public async execute(request: ProviderExecutionRequest): Promise<ProviderExecutionResult> {
     const args = ["--prompt", "orchestrator_input", "--output-format", "json", "--approval-mode", "auto_edit"];
-    const result = await runCommand("gemini", args, {
-      cwd: request.cwd,
-      env: request.env,
-      timeoutMs: request.timeoutMs,
-      stdin: request.prompt
-    });
+    const result = request.executionMode === "container"
+      ? await runInContainer({
+          runtime: request.containerRuntime ?? "docker",
+          image: request.containerImage ?? "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+          workspacePath: request.cwd,
+          env: request.env,
+          command: "gemini",
+          args,
+          timeoutMs: request.timeoutMs,
+          stdin: request.prompt,
+          network: request.networkPolicy ?? "allow"
+        })
+      : await runCommand("gemini", args, {
+          cwd: request.cwd,
+          env: request.env,
+          timeoutMs: request.timeoutMs,
+          stdin: request.prompt
+        });
 
     return {
       provider: this.provider,
       exitCode: result.code,
       stdout: result.stdout,
-      stderr: result.stderr
+      stderr: result.stderr,
+      rawOutput: `${result.stdout}${result.stderr}`
     };
   }
 }

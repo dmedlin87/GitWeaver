@@ -8,6 +8,8 @@ export interface RunManifest {
   dagHash: string;
   plannerRawPath: string;
   providerVersions: Record<string, string | undefined>;
+  providerHealth?: Record<string, unknown>;
+  executionMode?: "host" | "container";
   createdAt: string;
 }
 

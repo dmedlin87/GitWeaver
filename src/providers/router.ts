@@ -20,7 +20,17 @@ function providerHealthy(health: ProviderHealthSnapshot | undefined): boolean {
   if (!health) {
     return true;
   }
-  return health.score >= 50;
+  if (health.score < 50) {
+    return false;
+  }
+  if (!health.cooldownUntil) {
+    return true;
+  }
+  const cooldownUntilMs = Date.parse(health.cooldownUntil);
+  if (Number.isNaN(cooldownUntilMs)) {
+    return true;
+  }
+  return Date.now() >= cooldownUntilMs;
 }
 
 export function routeTask(

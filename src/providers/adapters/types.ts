@@ -6,6 +6,10 @@ export interface ProviderExecutionRequest {
   timeoutMs: number;
   outputSchemaPath?: string;
   env?: NodeJS.ProcessEnv;
+  executionMode?: "host" | "container";
+  containerRuntime?: "docker" | "podman";
+  containerImage?: string;
+  networkPolicy?: "allow" | "deny";
 }
 
 export interface ProviderExecutionResult {
@@ -13,6 +17,7 @@ export interface ProviderExecutionResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  rawOutput?: string;
 }
 
 export interface ProviderAdapter {

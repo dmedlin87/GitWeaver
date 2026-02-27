@@ -5,6 +5,16 @@ export interface RuntimeConfig {
   baselineGateCommand: string;
   concurrencyCap: number;
   providerBuckets: Record<"codex" | "claude" | "gemini", number>;
+  sqliteJournalMode: "WAL" | "DELETE";
+  sqliteSynchronous: "NORMAL" | "FULL";
+  sqliteBusyTimeoutMs: number;
+  sqliteBusyRetryMax: number;
+  executionMode: "host" | "container";
+  containerRuntime: "docker" | "podman";
+  containerImage: string;
+  providerBackoffBaseSec: number;
+  providerBackoffMaxSec: number;
+  providerHealthRecoverPerSuccess: number;
   leaseDurationSec: number;
   leaseRenewSec: number;
   heartbeatTimeoutSec: number;
@@ -25,6 +35,16 @@ export const DEFAULT_CONFIG: RuntimeConfig = {
     claude: 2,
     gemini: 2
   },
+  sqliteJournalMode: "WAL",
+  sqliteSynchronous: "NORMAL",
+  sqliteBusyTimeoutMs: 5000,
+  sqliteBusyRetryMax: 2,
+  executionMode: "host",
+  containerRuntime: "docker",
+  containerImage: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+  providerBackoffBaseSec: 5,
+  providerBackoffMaxSec: 60,
+  providerHealthRecoverPerSuccess: 10,
   leaseDurationSec: 120,
   leaseRenewSec: 30,
   heartbeatTimeoutSec: 60,

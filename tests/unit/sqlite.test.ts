@@ -66,4 +66,36 @@ describe("OrchestratorDb", () => {
         const run = db.getRun("run-rollback");
         expect(run).toBeUndefined();
     });
+
+    it("persists provider health snapshots and resume checkpoints", () => {
+        tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-health-"));
+        dbPath = join(tempDir, "state.sqlite");
+        db = new OrchestratorDb(dbPath);
+        db.migrate();
+
+        db.upsertProviderHealth("run-health", {
+            provider: "claude",
+            score: 70,
+            lastErrors: ["429"],
+            tokenBucket: 2,
+            cooldownUntil: "2026-01-01T00:00:00.000Z",
+            consecutiveFailures: 2,
+            backoffSec: 10
+        });
+
+        const snapshots = db.listProviderHealth("run-health");
+        expect(snapshots).toHaveLength(1);
+        expect(snapshots[0]?.provider).toBe("claude");
+        expect(snapshots[0]?.consecutiveFailures).toBe(2);
+
+        db.upsertResumeCheckpoint("run-health", "task-1", "MERGE_QUEUED", 41, "abc123");
+        const checkpoint = db.getResumeCheckpoint("run-health");
+        expect(checkpoint).toMatchObject({
+            runId: "run-health",
+            taskId: "task-1",
+            state: "MERGE_QUEUED",
+            eventSeq: 41,
+            commitHash: "abc123"
+        });
+    });
 });

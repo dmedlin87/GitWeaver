@@ -37,15 +37,22 @@ import { EventLog } from "../persistence/event-log.js";
 import { writeRunManifest } from "../persistence/manifest.js";
 import { reconcileResume } from "../persistence/resume-reconcile.js";
 import { validateCommand } from "../verification/command-policy.js";
+import { ProviderHealthManager } from "../providers/health-manager.js";
+import { createSecureExecutor } from "../secure/factory.js";
+import type { SecureExecutor } from "../secure/secure-executor.js";
 
 export interface RunCliOptions extends PreflightOptions {
   prompt: string;
   concurrency?: number;
   dryRun?: boolean;
+  dryRunReport?: "basic" | "detailed";
   config?: string;
   repo?: string;
   allowBaselineRepair?: boolean;
   acceptDrift?: boolean;
+  executionMode?: "host" | "container";
+  containerRuntime?: "docker" | "podman";
+  containerImage?: string;
   onProgress?: (update: ProgressUpdate) => void;
 }
 
@@ -74,6 +81,8 @@ interface RuntimeContext {
   runDir: string;
   db: OrchestratorDb;
   events: EventLog;
+  secureExecutor: SecureExecutor;
+  providerHealth: ProviderHealthManager;
   providerVersions: Record<string, string | undefined>;
   routeDecisions: TaskRoutingDecision[];
   onProgress?: (update: ProgressUpdate) => void;
@@ -101,14 +110,41 @@ export class Orchestrator {
   public async run(options: RunCliOptions): Promise<RunOutcome> {
     const runId = randomUUID();
     const repoPath = await this.resolveRepo(options.repo);
-    const config = loadConfig(options.config);
+    const loadedConfig = loadConfig(options.config);
+    const config: RuntimeConfig = {
+      ...loadedConfig,
+      executionMode: options.executionMode ?? loadedConfig.executionMode,
+      containerRuntime: options.containerRuntime ?? loadedConfig.containerRuntime,
+      containerImage: options.containerImage ?? loadedConfig.containerImage
+    };
     const runDir = join(repoPath, ".orchestrator", "runs", runId);
     mkdirSync(runDir, { recursive: true });
 
-    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"));
+    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"), {
+      journalMode: config.sqliteJournalMode,
+      synchronous: config.sqliteSynchronous,
+      busyTimeoutMs: config.sqliteBusyTimeoutMs,
+      busyRetryMax: config.sqliteBusyRetryMax,
+      onBusyRetry: (operation, attempt, error) => {
+        this.metrics.inc("sqlite.busy_retry");
+        this.logger.info("SQLite busy retry", { runId, operation, attempt, message: error.message });
+      },
+      onBusyExhausted: (operation, attempts, error) => {
+        this.metrics.inc("sqlite.busy_exhausted");
+        this.logger.error("SQLite busy exhausted", { runId, operation, attempts, message: error.message });
+      }
+    });
     db.migrate();
 
     const events = new EventLog(join(runDir, "events.ndjson"));
+    const secureExecutor = createSecureExecutor(config.executionMode);
+    const providerHealth = new ProviderHealthManager({
+      buckets: config.providerBuckets,
+      baseBackoffSec: config.providerBackoffBaseSec,
+      maxBackoffSec: config.providerBackoffMaxSec,
+      recoverPerSuccess: config.providerHealthRecoverPerSuccess,
+      initial: this.indexProviderHealth(db.listProviderHealth(runId))
+    });
 
     const baselineCommit = await this.gitHead(repoPath);
     const now = new Date().toISOString();
@@ -129,6 +165,8 @@ export class Orchestrator {
       runDir,
       db,
       events,
+      secureExecutor,
+      providerHealth,
       providerVersions: {},
       routeDecisions: [],
       onProgress: options.onProgress
@@ -149,9 +187,12 @@ export class Orchestrator {
 
       if (options.dryRun) {
         this.progress(ctx, "dry_run", "Dry run completed after planning");
+        const detailed = options.dryRunReport !== "basic";
         return this.completeRun(ctx, "COMPLETED", undefined, {
           dryRun: true,
-          dag: frozenDag
+          dag: frozenDag,
+          routeDecisions: detailed ? ctx.routeDecisions : undefined,
+          estimatedCost: detailed ? this.estimateDryRunCost(frozenDag) : undefined
         });
       }
 
@@ -185,7 +226,7 @@ export class Orchestrator {
 
   public async resume(runId: string, acceptDrift: boolean): Promise<RunOutcome> {
     const repoPath = await this.resolveRepo(undefined);
-    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"));
+    const db = this.openDb(repoPath);
     db.migrate();
     try {
       const run = db.getRun(runId);
@@ -199,6 +240,18 @@ export class Orchestrator {
         tasksFromDb: db.listTasks(runId),
         events: events.readAll()
       });
+      const checkpoint = db.getResumeCheckpoint(runId);
+      if (
+        checkpoint?.taskId &&
+        checkpoint.state === "MERGE_QUEUED" &&
+        !decision.mergedTaskIds.includes(checkpoint.taskId) &&
+        !decision.escalatedTaskIds.includes(checkpoint.taskId) &&
+        !decision.requeueTaskIds.includes(checkpoint.taskId)
+      ) {
+        decision.requeueTaskIds.push(checkpoint.taskId);
+        decision.reasons[checkpoint.taskId] = REASON_CODES.RESUME_MERGE_IN_FLIGHT;
+      }
+      decision.requeueTaskIds.sort();
 
       if (decision.driftDetected) {
         events.append(runId, "DRIFT_DETECTED", {
@@ -219,7 +272,8 @@ export class Orchestrator {
           escalatedTaskIds: decision.escalatedTaskIds,
           driftDetected: decision.driftDetected,
           driftCommits: decision.driftCommits,
-          reconcileReasons: decision.reasons
+          reconcileReasons: decision.reasons,
+          resumeCheckpoint: checkpoint
         }
       };
     } finally {
@@ -229,7 +283,7 @@ export class Orchestrator {
 
   public async status(runId: string): Promise<Record<string, unknown>> {
     const repoPath = await this.resolveRepo(undefined);
-    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"));
+    const db = this.openDb(repoPath);
     db.migrate();
 
     const run = db.getRun(runId);
@@ -254,7 +308,7 @@ export class Orchestrator {
 
   public async locks(runId: string): Promise<Record<string, unknown>> {
     const repoPath = await this.resolveRepo(undefined);
-    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"));
+    const db = this.openDb(repoPath);
     db.migrate();
     const leases = db.listLeases(runId);
     db.close();
@@ -316,7 +370,7 @@ export class Orchestrator {
       }
 
       while (running.size < (options.concurrency ?? ctx.config.concurrencyCap)) {
-        const task = scheduler.tryDispatch();
+        const task = scheduler.tryDispatch((candidate) => ctx.providerHealth.canDispatch(candidate.provider));
         if (!task) {
           break;
         }
@@ -381,6 +435,11 @@ export class Orchestrator {
           }
         }
         break;
+      }
+
+      if (running.size === 0 && scheduler.pending() > 0) {
+        await this.waitMs(250);
+        continue;
       }
 
       await Promise.race(running.values());
@@ -500,7 +559,9 @@ export class Orchestrator {
 
       const prompt = this.composeExecutionPrompt(task, envelope, contextPack);
       const sandboxHome = await createSandboxHome(ctx.run.runId, task.taskId, task.provider);
-      const env = buildSandboxEnv(process.env, sandboxHome);
+      const secureBaseEnv = ctx.secureExecutor.prepareEnvironment(process.env);
+      const env = buildSandboxEnv(secureBaseEnv, sandboxHome);
+      env.ORCH_TASK_NETWORK_POLICY = task.commandPolicy.network;
 
       const adapter = getProviderAdapter(task.provider);
       const providerStartedAt = Date.now();
@@ -538,7 +599,11 @@ export class Orchestrator {
           prompt,
           cwd: worktree.path,
           timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
-          env
+          env,
+          executionMode: ctx.config.executionMode,
+          containerRuntime: ctx.config.containerRuntime,
+          containerImage: ctx.config.containerImage,
+          networkPolicy: "allow"
         });
       } finally {
         clearInterval(providerHeartbeat);
@@ -559,9 +624,19 @@ export class Orchestrator {
         elapsedSec: providerElapsedSec
       });
 
+      if (ctx.config.forensicRawLogs && execution.rawOutput) {
+        const forensicPath = this.persistForensicOutput(ctx, task.taskId, record.attempts, execution.rawOutput);
+        ctx.events.append(ctx.run.runId, "TASK_FORENSIC_RAW_CAPTURED", {
+          taskId: task.taskId,
+          attempt: record.attempts,
+          path: forensicPath
+        });
+      }
+
       if (execution.exitCode !== 0) {
         throw this.errorWithCode(`Task ${task.taskId} execution failed: ${execution.stderr || execution.stdout}`, REASON_CODES.EXEC_FAILED);
       }
+      this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(task.provider));
 
       const commitHash = await latestCommit(worktree.path);
       if (commitHash === baseCommit) {
@@ -589,6 +664,9 @@ export class Orchestrator {
       ctx.events.append(ctx.run.runId, "TASK_MERGE_QUEUED", { taskId: task.taskId, commitHash });
 
       await mergeQueue.enqueue(async () => {
+        const integrationStart = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_START", { taskId: task.taskId, commitHash });
+        ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "MERGE_QUEUED", integrationStart.seq, commitHash);
+
         for (const lease of leases) {
           if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
             throw this.errorWithCode(`Fencing token invalid for ${task.taskId}`, REASON_CODES.LOCK_TIMEOUT);
@@ -598,6 +676,10 @@ export class Orchestrator {
         const latestSignatures = collectArtifactSignatures(ctx.run.repoPath, consumedArtifacts);
         const stale = await detectStaleness(ctx.run.repoPath, baseCommit, consumedArtifacts, priorSignatures, latestSignatures);
         if (stale.stale) {
+          ctx.events.append(ctx.run.runId, "TASK_REPLAN_TRIGGERED", {
+            taskId: task.taskId,
+            reasons: stale.reasons
+          });
           throw this.errorWithCode(`Task ${task.taskId} is stale: ${stale.reasons.join("; ")}`, REASON_CODES.STALE_TASK);
         }
 
@@ -612,9 +694,11 @@ export class Orchestrator {
         ctx.db.upsertTask(record);
         ctx.events.append(ctx.run.runId, "TASK_MERGED", { taskId: task.taskId, commitHash });
 
-        const verify = verifyTaskOutput(ctx.run.repoPath, task);
-        if (!verify.ok) {
-          throw this.errorWithCode(`Output verification failed: ${verify.errors.join("; ")}`, REASON_CODES.VERIFY_FAIL_OUTPUT);
+        if (task.verify.outputVerificationRequired) {
+          const verify = verifyTaskOutput(ctx.run.repoPath, task);
+          if (!verify.ok) {
+            throw this.errorWithCode(`Output verification failed: ${verify.errors.join("; ")}`, REASON_CODES.VERIFY_FAIL_OUTPUT);
+          }
         }
 
         const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
@@ -623,7 +707,13 @@ export class Orchestrator {
           throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
         }
 
-        const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000);
+        const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000, {
+          env: ctx.secureExecutor.prepareEnvironment(process.env),
+          executionMode: ctx.config.executionMode,
+          containerRuntime: ctx.config.containerRuntime,
+          containerImage: ctx.config.containerImage,
+          networkPolicy: this.resolveNetworkPolicy(ctx, task.commandPolicy.network)
+        });
         ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
         if (!gate.ok) {
           throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
@@ -634,6 +724,9 @@ export class Orchestrator {
         for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
           ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
         }
+
+        const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
+        ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
       });
 
       record.state = "VERIFIED";
@@ -646,6 +739,9 @@ export class Orchestrator {
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
       const errorText = (error as Error).message;
+      if (reasonCode === REASON_CODES.EXEC_FAILED || reasonCode === REASON_CODES.AUTH_MISSING) {
+        this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(task.provider, errorText));
+      }
       this.progress(ctx, "task_error", `Task ${task.taskId} failed: ${errorText}`, {
         taskId: task.taskId,
         provider: task.provider
@@ -662,6 +758,9 @@ export class Orchestrator {
       const failureClass = classifyFailure(errorText, reasonCode);
       const attempt = repairBudget.increment(failureClass);
       ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, errorText);
+      if (reasonCode === REASON_CODES.STALE_TASK) {
+        this.metrics.inc("stale.replan_triggered");
+      }
 
       if (repairBudget.allowed(failureClass)) {
         let changedFiles: string[] = [];
@@ -804,7 +903,13 @@ export class Orchestrator {
       throw this.errorWithCode("Repository is dirty at run start", REASON_CODES.BASELINE_DIRTY_REPO);
     }
 
-    const gate = await runGate(ctx.config.baselineGateCommand, ctx.run.repoPath, 180_000);
+    const gate = await runGate(ctx.config.baselineGateCommand, ctx.run.repoPath, 180_000, {
+      env: ctx.secureExecutor.prepareEnvironment(process.env),
+      executionMode: ctx.config.executionMode,
+      containerRuntime: ctx.config.containerRuntime,
+      containerImage: ctx.config.containerImage,
+      networkPolicy: this.resolveNetworkPolicy(ctx, ctx.config.defaultNetworkPolicy)
+    });
     if (!gate.ok && !options.allowBaselineRepair) {
       throw this.errorWithCode("Baseline gate failed", REASON_CODES.BASELINE_GATE_FAILED);
     }
@@ -820,7 +925,7 @@ export class Orchestrator {
       ? this.mockDag(options.prompt)
       : (await generateDagWithCodex(options.prompt, ctx.run.repoPath)).dag;
 
-    const healthSnapshots = this.defaultHealth();
+    const healthSnapshots = ctx.providerHealth.snapshotAll();
     const routeDecisions: TaskRoutingDecision[] = [];
     const routed: DagSpec = {
       ...planned,
@@ -897,6 +1002,8 @@ export class Orchestrator {
       dagHash: dag.dagHash ?? "",
       plannerRawPath: join(ctx.runDir, "plan.raw.json"),
       providerVersions: { ...ctx.providerVersions },
+      providerHealth: ctx.providerHealth.snapshotAll(),
+      executionMode: ctx.config.executionMode,
       createdAt: new Date().toISOString()
     });
   }
@@ -921,14 +1028,6 @@ export class Orchestrator {
       routingReason: decision.routingReason,
       fallbackProvider: decision.fallbackProvider,
       fallbackReason: decision.fallbackReason
-    };
-  }
-
-  private defaultHealth(): Partial<Record<ProviderId, ProviderHealthSnapshot>> {
-    return {
-      codex: { provider: "codex", score: 100, lastErrors: [], tokenBucket: 1 },
-      claude: { provider: "claude", score: 100, lastErrors: [], tokenBucket: 2 },
-      gemini: { provider: "gemini", score: 100, lastErrors: [], tokenBucket: 2 }
     };
   }
 
@@ -1086,6 +1185,76 @@ export class Orchestrator {
     return limited;
   }
 
+  private openDb(repoPath: string): OrchestratorDb {
+    const config = loadConfig(undefined);
+    return new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"), {
+      journalMode: config.sqliteJournalMode,
+      synchronous: config.sqliteSynchronous,
+      busyTimeoutMs: config.sqliteBusyTimeoutMs,
+      busyRetryMax: config.sqliteBusyRetryMax
+    });
+  }
+
+  private indexProviderHealth(snapshots: ProviderHealthSnapshot[]): Partial<Record<ProviderId, ProviderHealthSnapshot>> {
+    return snapshots.reduce<Partial<Record<ProviderId, ProviderHealthSnapshot>>>((acc, snapshot) => {
+      acc[snapshot.provider] = snapshot;
+      return acc;
+    }, {});
+  }
+
+  private persistProviderHealth(ctx: RuntimeContext, snapshot: ProviderHealthSnapshot): void {
+    ctx.db.upsertProviderHealth(ctx.run.runId, snapshot);
+    this.metrics.inc("provider.health_updates");
+    ctx.events.append(ctx.run.runId, "PROVIDER_HEALTH_UPDATED", {
+      provider: snapshot.provider,
+      score: snapshot.score,
+      cooldownUntil: snapshot.cooldownUntil,
+      consecutiveFailures: snapshot.consecutiveFailures,
+      backoffSec: snapshot.backoffSec
+    });
+  }
+
+  private resolveNetworkPolicy(ctx: RuntimeContext, taskPolicy: "allow" | "deny"): "allow" | "deny" {
+    const allowed = ctx.secureExecutor.networkAllowed(taskPolicy === "allow");
+    return allowed ? "allow" : "deny";
+  }
+
+  private persistForensicOutput(ctx: RuntimeContext, taskId: string, attempt: number, rawOutput: string): string {
+    const dir = join(ctx.runDir, "forensics");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${taskId}.attempt-${attempt}.raw.log`);
+    writeFileSync(path, rawOutput, "utf8");
+    return path;
+  }
+
+  private estimateDryRunCost(dag: DagSpec): Record<string, unknown> {
+    const providerCounts = dag.nodes.reduce<Record<string, number>>((acc, node) => {
+      acc[node.provider] = (acc[node.provider] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const weightedUnits = dag.nodes.reduce((total, node) => {
+      if (node.type === "code" || node.type === "refactor") {
+        return total + 3;
+      }
+      if (node.type === "test" || node.type === "repair") {
+        return total + 2;
+      }
+      return total + 1;
+    }, 0);
+
+    return {
+      unitModel: "relative-weight",
+      weightedUnits,
+      taskCount: dag.nodes.length,
+      byProvider: providerCounts
+    };
+  }
+
+  private async waitMs(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private errorWithCode(message: string, reasonCode: ReasonCode): Error {
     const error = new Error(message) as Error & { reasonCode?: ReasonCode };
     error.reasonCode = reasonCode;
@@ -1094,6 +1263,9 @@ export class Orchestrator {
 
   private extractReasonCode(error: unknown): ReasonCode {
     const reasonCode = (error as { reasonCode?: ReasonCode }).reasonCode;
+    if (!reasonCode && (error as Error).message?.includes("SQLITE_BUSY")) {
+      return REASON_CODES.SQLITE_BUSY_EXHAUSTED;
+    }
     return reasonCode ?? REASON_CODES.ABORTED_POLICY;
   }
 
