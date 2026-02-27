@@ -28,6 +28,12 @@ Major remaining work is not the basic pipeline, but PRD alignment hardening:
   - route decisions are now persisted in `plan.routed.json` and emitted in `PLAN_FROZEN` event payload.
 - Manifest provenance strengthened:
   - provider versions from preflight are now recorded in run manifest.
+- Resume precedence core implemented:
+  - deterministic per-task reconciliation now applies `git -> event log -> sqlite` precedence.
+  - ambiguous event-vs-git merged claims now escalate with `RESUME_AMBIGUOUS_STATE`.
+  - event-only tasks are recovered into deterministic resume requeue output.
+- Recovery precedence coverage expanded:
+  - integration tests now cover event-log precedence, event-only recovery, ambiguous escalation, and git-over-event conflict resolution.
 
 ## Remaining Work (What Is Left)
 

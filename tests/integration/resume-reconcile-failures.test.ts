@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import type { RunRecord, TaskRecord } from "../../src/core/types.js";
+import type { EventRecord, RunRecord, TaskRecord } from "../../src/core/types.js";
 import { reconcileResume } from "../../src/persistence/resume-reconcile.js";
 
 const tempDirs: string[] = [];
@@ -218,5 +218,198 @@ describe("resume reconciliation failure modes", () => {
 
     expect(decision.driftDetected).toBe(true);
     expect(decision.driftCommits).toContain(externalCommit);
+  });
+
+  it("uses event-log precedence over sqlite when git has no merge proof", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    const run: RunRecord = {
+      runId: "run-event-precedence",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-escalated",
+        provider: "claude",
+        type: "code",
+        state: "RUNNING",
+        attempts: 1,
+        contractHash: "hash-1"
+      }
+    ];
+
+    const events: EventRecord[] = [
+      {
+        seq: 1,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_ESCALATED",
+        payload: { taskId: "task-escalated", reasonCode: "MERGE_CONFLICT" },
+        payloadHash: "hash"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events
+    });
+
+    expect(decision.escalatedTaskIds).toContain("task-escalated");
+    expect(decision.requeueTaskIds).not.toContain("task-escalated");
+  });
+
+  it("requeues event-only tasks and marks sqlite lag", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    const run: RunRecord = {
+      runId: "run-event-only",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const events: EventRecord[] = [
+      {
+        seq: 1,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_COMMIT_PRODUCED",
+        payload: { taskId: "task-from-events", commitHash: "abc123" },
+        payloadHash: "hash"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events
+    });
+
+    expect(decision.requeueTaskIds).toContain("task-from-events");
+    expect(decision.reasons["task-from-events"]).toBe("RESUME_DB_LAG");
+  });
+
+  it("escalates ambiguous event-vs-git mismatch deterministically", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    const run: RunRecord = {
+      runId: "run-ambiguous",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const events: EventRecord[] = [
+      {
+        seq: 1,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_MERGED",
+        payload: { taskId: "task-ambiguous", commitHash: "abc123" },
+        payloadHash: "hash"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events
+    });
+
+    expect(decision.escalatedTaskIds).toContain("task-ambiguous");
+    expect(decision.reasons["task-ambiguous"]).toBe("RESUME_AMBIGUOUS_STATE");
+  });
+
+  it("keeps git as highest precedence over conflicting event state", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    writeFileSync(join(repo, "file.txt"), "hello world\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-git-wins\nORCH_TASK_ID=task-git-wins"]);
+
+    const run: RunRecord = {
+      runId: "run-git-wins",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-git-wins",
+        provider: "claude",
+        type: "code",
+        state: "RUNNING",
+        attempts: 1,
+        contractHash: "hash-1"
+      }
+    ];
+
+    const events: EventRecord[] = [
+      {
+        seq: 1,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_ESCALATED",
+        payload: { taskId: "task-git-wins", reasonCode: "MERGE_CONFLICT" },
+        payloadHash: "hash"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events
+    });
+
+    expect(decision.mergedTaskIds).toContain("task-git-wins");
+    expect(decision.escalatedTaskIds).not.toContain("task-git-wins");
+    expect(decision.reasons["task-git-wins"]).toBe("RESUME_DB_LAG");
   });
 });
