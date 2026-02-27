@@ -13,6 +13,7 @@ export interface ResumeDecision {
   requeueTaskIds: string[];
   escalatedTaskIds: string[];
   driftDetected: boolean;
+  driftCommits: string[];
   reasons: Record<string, string>;
 }
 
@@ -45,10 +46,53 @@ async function mergedTasksFromGit(repoPath: string, runId: string): Promise<stri
   return [...ids];
 }
 
+async function detectExternalDriftCommits(repoPath: string, baselineCommit: string, runId: string): Promise<string[]> {
+  const hashResult = await runCommand(
+    "git",
+    [
+      "-C",
+      repoPath,
+      "rev-list",
+      `${baselineCommit}..HEAD`
+    ],
+    { timeoutMs: 30_000 }
+  );
+
+  if (hashResult.code !== 0) {
+    return [];
+  }
+
+  const driftCommits: string[] = [];
+  const hashes = hashResult.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const hash of hashes) {
+    const bodyResult = await runCommand(
+      "git",
+      ["-C", repoPath, "cat-file", "-p", hash],
+      { timeoutMs: 10_000 }
+    );
+
+    if (bodyResult.code !== 0) {
+      continue;
+    }
+
+    const body = bodyResult.stdout.split(/\r?\n\r?\n/).slice(1).join("\n\n");
+    if (!body.includes(`ORCH_RUN_ID=${runId}`)) {
+      driftCommits.push(hash);
+    }
+  }
+
+  return [...new Set(driftCommits)].sort();
+}
+
 export async function reconcileResume(input: ResumeInput): Promise<ResumeDecision> {
   const mergedFromGit = await mergedTasksFromGit(input.run.repoPath, input.run.runId);
   const mergedSet = new Set<string>(mergedFromGit);
   const mergedTaskIds = [...mergedSet].sort();
+  const driftCommits = await detectExternalDriftCommits(input.run.repoPath, input.run.baselineCommit, input.run.runId);
 
   const requeueTaskIds: string[] = [];
   const escalatedTaskIds: string[] = [];
@@ -80,13 +124,14 @@ export async function reconcileResume(input: ResumeInput): Promise<ResumeDecisio
   escalatedTaskIds.sort();
 
   const lastEvent = input.events[input.events.length - 1];
-  const driftDetected = Boolean(lastEvent?.type === "DRIFT_DETECTED");
+  const driftDetected = driftCommits.length > 0 || Boolean(lastEvent?.type === "DRIFT_DETECTED");
 
   return {
     mergedTaskIds,
     requeueTaskIds,
     escalatedTaskIds,
     driftDetected,
+    driftCommits,
     reasons
   };
 }

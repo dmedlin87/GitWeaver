@@ -26,9 +26,9 @@ import { evaluateScope } from "../verification/scope-policy.js";
 import { extractFilesFromError } from "../verification/error-extractor.js";
 import { verifyTaskOutput } from "../verification/output-verifier.js";
 import { runGate } from "../verification/post-merge-gate.js";
-import { detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
+import { artifactKey, collectArtifactSignatures, detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
 import { buildContextPack } from "../planning/context-pack.js";
-import { buildPromptEnvelope } from "../planning/prompt-envelope.js";
+import { assertPromptDrift, buildPromptEnvelope } from "../planning/prompt-envelope.js";
 import { classifyFailure, isNonRepairableExecutionFailure } from "../repair/failure-classifier.js";
 import { RepairBudget } from "../repair/repair-budget.js";
 import { buildRepairTask } from "../repair/repair-planner.js";
@@ -170,32 +170,44 @@ export class Orchestrator {
     const repoPath = await this.resolveRepo(undefined);
     const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"));
     db.migrate();
-    const run = db.getRun(runId);
-    if (!run) {
-      throw new Error(`Run ${runId} not found`);
-    }
-
-    const events = new EventLog(join(repoPath, ".orchestrator", "runs", runId, "events.ndjson"));
-    const decision = await reconcileResume({
-      run,
-      tasksFromDb: db.listTasks(runId),
-      events: events.readAll()
-    });
-
-    if (decision.driftDetected && !acceptDrift) {
-      throw this.errorWithCode("Main branch drift requires --accept-drift", REASON_CODES.RESUME_DRIFT_REQUIRES_ACCEPT);
-    }
-
-    return {
-      runId,
-      state: run.state,
-      summary: {
-        mergedTaskIds: decision.mergedTaskIds,
-        requeueTaskIds: decision.requeueTaskIds,
-        escalatedTaskIds: decision.escalatedTaskIds,
-        reconcileReasons: decision.reasons
+    try {
+      const run = db.getRun(runId);
+      if (!run) {
+        throw new Error(`Run ${runId} not found`);
       }
-    };
+
+      const events = new EventLog(join(repoPath, ".orchestrator", "runs", runId, "events.ndjson"));
+      const decision = await reconcileResume({
+        run,
+        tasksFromDb: db.listTasks(runId),
+        events: events.readAll()
+      });
+
+      if (decision.driftDetected) {
+        events.append(runId, "DRIFT_DETECTED", {
+          driftCommits: decision.driftCommits
+        });
+      }
+
+      if (decision.driftDetected && !acceptDrift) {
+        throw this.errorWithCode("Main branch drift requires --accept-drift", REASON_CODES.RESUME_DRIFT_REQUIRES_ACCEPT);
+      }
+
+      return {
+        runId,
+        state: run.state,
+        summary: {
+          mergedTaskIds: decision.mergedTaskIds,
+          requeueTaskIds: decision.requeueTaskIds,
+          escalatedTaskIds: decision.escalatedTaskIds,
+          driftDetected: decision.driftDetected,
+          driftCommits: decision.driftCommits,
+          reconcileReasons: decision.reasons
+        }
+      };
+    } finally {
+      db.close();
+    }
   }
 
   public async status(runId: string): Promise<Record<string, unknown>> {
@@ -410,6 +422,14 @@ export class Orchestrator {
 
     const baseCommit = await this.gitHead(ctx.run.repoPath);
     const worktree = await worktreeManager.create(ctx.run.repoPath, ctx.run.runId, task.taskId, baseCommit);
+    const consumedArtifacts = task.artifactIO.consumes ?? [];
+    const consumedArtifactKeys = consumedArtifacts.map((artifact) => artifactKey(ctx.run.repoPath, artifact));
+    const registrySignatures = ctx.db.listArtifactSignatures(ctx.run.runId, consumedArtifactKeys);
+    const worktreeSignatures = collectArtifactSignatures(worktree.path, consumedArtifacts);
+    const priorSignatures: ArtifactSignatureMap = {
+      ...worktreeSignatures,
+      ...registrySignatures
+    };
 
     try {
       record.state = "RUNNING";
@@ -428,6 +448,37 @@ export class Orchestrator {
         baselineCommit: baseCommit,
         contextPackHash: contextPack.contextPackHash,
         immutableSections: immutable
+      });
+
+      const previousEnvelope = ctx.db.getLatestPromptEnvelope(ctx.run.runId, task.taskId);
+      if (previousEnvelope) {
+        const previous = {
+          ...envelope,
+          immutableSectionsHash: previousEnvelope.immutableSectionsHash,
+          taskContractHash: previousEnvelope.taskContractHash,
+          contextPackHash: previousEnvelope.contextPackHash
+        };
+        try {
+          assertPromptDrift(previous, envelope);
+        } catch (error) {
+          throw this.errorWithCode((error as Error).message, REASON_CODES.PROMPT_DRIFT);
+        }
+      }
+
+      ctx.db.recordPromptEnvelope(
+        ctx.run.runId,
+        task.taskId,
+        record.attempts,
+        envelope.immutableSectionsHash,
+        envelope.taskContractHash,
+        envelope.contextPackHash
+      );
+      ctx.events.append(ctx.run.runId, "TASK_PROMPT_ENVELOPE", {
+        taskId: task.taskId,
+        attempt: record.attempts,
+        immutableSectionsHash: envelope.immutableSectionsHash,
+        taskContractHash: envelope.taskContractHash,
+        contextPackHash: envelope.contextPackHash
       });
 
       const prompt = this.composeExecutionPrompt(task, envelope, contextPack);
@@ -517,7 +568,8 @@ export class Orchestrator {
           }
         }
 
-        const stale = await detectStaleness(ctx.run.repoPath, baseCommit, task.artifactIO.consumes, {}, {} as ArtifactSignatureMap);
+        const latestSignatures = collectArtifactSignatures(ctx.run.repoPath, consumedArtifacts);
+        const stale = await detectStaleness(ctx.run.repoPath, baseCommit, consumedArtifacts, priorSignatures, latestSignatures);
         if (stale.stale) {
           throw this.errorWithCode(`Task ${task.taskId} is stale: ${stale.reasons.join("; ")}`, REASON_CODES.STALE_TASK);
         }
@@ -540,6 +592,12 @@ export class Orchestrator {
         ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
         if (!gate.ok) {
           throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
+        }
+
+        const producedArtifacts = task.artifactIO.produces ?? [];
+        const producedSignatures = collectArtifactSignatures(ctx.run.repoPath, producedArtifacts);
+        for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
+          ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
         }
       });
 

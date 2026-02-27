@@ -13,6 +13,11 @@ describe("failure classifier", () => {
     expect(isNonRepairableExecutionFailure("missing auth", REASON_CODES.AUTH_MISSING)).toBe(true);
   });
 
+  it("flags prompt drift as non-repairable", () => {
+    expect(isNonRepairableExecutionFailure("prompt drift", REASON_CODES.PROMPT_DRIFT)).toBe(true);
+    expect(classifyFailure("prompt drift", REASON_CODES.PROMPT_DRIFT)).toBe("NON_REPAIRABLE_EXEC");
+  });
+
   it("keeps test failures repairable", () => {
     const text = "Assertion failed in test suite";
     expect(isNonRepairableExecutionFailure(text, REASON_CODES.VERIFY_FAIL_TEST)).toBe(false);

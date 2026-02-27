@@ -103,6 +103,66 @@ export class OrchestratorDb {
       .run(runId, taskId, attempt, state, reasonCode ?? null, new Date().toISOString());
   }
 
+  public recordPromptEnvelope(
+    runId: string,
+    taskId: string,
+    attempt: number,
+    immutableSectionsHash: string,
+    taskContractHash: string,
+    contextPackHash: string
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO prompt_envelopes(
+          run_id,
+          task_id,
+          attempt,
+          immutable_sections_hash,
+          task_contract_hash,
+          context_pack_hash,
+          created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(runId, taskId, attempt, immutableSectionsHash, taskContractHash, contextPackHash, new Date().toISOString());
+  }
+
+  public getLatestPromptEnvelope(runId: string, taskId: string):
+    | {
+        attempt: number;
+        immutableSectionsHash: string;
+        taskContractHash: string;
+        contextPackHash: string;
+      }
+    | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT attempt, immutable_sections_hash, task_contract_hash, context_pack_hash
+         FROM prompt_envelopes
+         WHERE run_id=? AND task_id=?
+         ORDER BY attempt DESC
+         LIMIT 1`
+      )
+      .get(runId, taskId) as
+      | {
+          attempt: number;
+          immutable_sections_hash: string;
+          task_contract_hash: string;
+          context_pack_hash: string;
+        }
+      | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      attempt: row.attempt,
+      immutableSectionsHash: row.immutable_sections_hash,
+      taskContractHash: row.task_contract_hash,
+      contextPackHash: row.context_pack_hash
+    };
+  }
+
   public upsertLease(runId: string, resourceKey: string, ownerTaskId: string, expiresAt: string, fencingToken: number): void {
     this.db
       .prepare(
@@ -114,6 +174,36 @@ export class OrchestratorDb {
            fencing_token=excluded.fencing_token`
       )
       .run(runId, resourceKey, ownerTaskId, expiresAt, fencingToken);
+  }
+
+  public upsertArtifactSignature(runId: string, artifactKey: string, signature: string, filePath?: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO artifacts(run_id, artifact_key, signature, file_path, updated_at)
+         VALUES(?, ?, ?, ?, ?)
+         ON CONFLICT(run_id, artifact_key) DO UPDATE SET
+           signature=excluded.signature,
+           file_path=excluded.file_path,
+           updated_at=excluded.updated_at`
+      )
+      .run(runId, artifactKey, signature, filePath ?? null, new Date().toISOString());
+  }
+
+  public listArtifactSignatures(runId: string, artifactKeys: string[]): Record<string, string> {
+    if (artifactKeys.length === 0) {
+      return {};
+    }
+
+    const uniqueKeys = [...new Set(artifactKeys)];
+    const placeholders = uniqueKeys.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT artifact_key, signature FROM artifacts WHERE run_id=? AND artifact_key IN (${placeholders})`)
+      .all(runId, ...uniqueKeys) as Array<{ artifact_key: string; signature: string }>;
+
+    return rows.reduce<Record<string, string>>((acc, row) => {
+      acc[row.artifact_key] = row.signature;
+      return acc;
+    }, {});
   }
 
   public removeLeasesByTask(runId: string, taskId: string): void {

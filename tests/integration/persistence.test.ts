@@ -61,6 +61,23 @@ describe("persistence integration", () => {
     expect(loadedTasks).toHaveLength(1);
     expect(loadedTasks[0]?.taskId).toBe(task.taskId);
 
+    db.recordPromptEnvelope(run.runId, task.taskId, 1, "imm-1", "contract-1", "context-1");
+    db.recordPromptEnvelope(run.runId, task.taskId, 2, "imm-2", "contract-2", "context-2");
+    const latestEnvelope = db.getLatestPromptEnvelope(run.runId, task.taskId);
+    expect(latestEnvelope).toEqual({
+      attempt: 2,
+      immutableSectionsHash: "imm-2",
+      taskContractHash: "contract-2",
+      contextPackHash: "context-2"
+    });
+
+    db.upsertArtifactSignature(run.runId, "src/a.ts", "sig-a");
+    db.upsertArtifactSignature(run.runId, "src/b.ts", "sig-b");
+    expect(db.listArtifactSignatures(run.runId, ["src/a.ts", "src/b.ts", "src/c.ts"])).toEqual({
+      "src/a.ts": "sig-a",
+      "src/b.ts": "sig-b"
+    });
+
     const log = new EventLog(eventPath);
     const event = log.append(run.runId, "TASK_READY", { taskId: task.taskId });
     const allEvents = log.readAll();

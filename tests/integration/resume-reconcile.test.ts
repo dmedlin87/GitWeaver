@@ -23,11 +23,12 @@ function makeTempDir(): string {
   return dir;
 }
 
-function runGit(repoPath: string, args: string[]): void {
+function runGit(repoPath: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd: repoPath, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
+  return result.stdout.trim();
 }
 
 describe("resume reconciliation integration", () => {
@@ -86,5 +87,42 @@ describe("resume reconciliation integration", () => {
     expect(decision.mergedTaskIds).toContain("task-merged");
     expect(decision.requeueTaskIds).toContain("task-open");
     expect(decision.driftDetected).toBe(false);
+    expect(decision.driftCommits).toEqual([]);
+  });
+
+  it("does not flag drift when commits after baseline belong to the same run", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+    const baseline = runGit(repo, ["rev-parse", "HEAD"]);
+
+    writeFileSync(join(repo, "file.txt"), "orchestrated\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-clean\nORCH_TASK_ID=task-1"]);
+
+    const run: RunRecord = {
+      runId: "run-clean",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: baseline,
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events: []
+    });
+
+    expect(decision.driftDetected).toBe(false);
+    expect(decision.driftCommits).toEqual([]);
   });
 });

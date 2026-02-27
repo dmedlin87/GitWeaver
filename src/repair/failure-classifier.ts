@@ -25,7 +25,7 @@ const NON_REPAIRABLE_EXEC_PATTERNS = [
 ];
 
 export function isNonRepairableExecutionFailure(text: string, reasonCode?: string): boolean {
-  if (reasonCode === REASON_CODES.AUTH_MISSING) {
+  if (reasonCode === REASON_CODES.AUTH_MISSING || reasonCode === REASON_CODES.PROMPT_DRIFT) {
     return true;
   }
 

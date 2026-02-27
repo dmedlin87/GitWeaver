@@ -23,11 +23,12 @@ function makeTempDir(): string {
   return dir;
 }
 
-function runGit(repoPath: string, args: string[]): void {
+function runGit(repoPath: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd: repoPath, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
+  return result.stdout.trim();
 }
 
 describe("resume reconciliation failure modes", () => {
@@ -176,5 +177,46 @@ describe("resume reconciliation failure modes", () => {
 
     // Requeue: Z, Y pending in DB. Should be sorted.
     expect(decision.requeueTaskIds).toEqual(["Y", "Z"]);
+  });
+
+  it("detects external drift commits since baseline", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+    const baseline = runGit(repo, ["rev-parse", "HEAD"]);
+
+    writeFileSync(join(repo, "file.txt"), "from-orchestrator\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "run commit\n\nORCH_RUN_ID=run-drift\nORCH_TASK_ID=task-1"]);
+
+    writeFileSync(join(repo, "file.txt"), "external\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "manual hotfix"]);
+    const externalCommit = runGit(repo, ["rev-parse", "HEAD"]);
+
+    const run: RunRecord = {
+      runId: "run-drift",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: baseline,
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events: []
+    });
+
+    expect(decision.driftDetected).toBe(true);
+    expect(decision.driftCommits).toContain(externalCommit);
   });
 });

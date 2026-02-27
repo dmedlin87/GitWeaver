@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS artifacts (
   PRIMARY KEY (run_id, artifact_key)
 );
 
+CREATE TABLE IF NOT EXISTS prompt_envelopes (
+  run_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  immutable_sections_hash TEXT NOT NULL,
+  task_contract_hash TEXT NOT NULL,
+  context_pack_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, task_id, attempt)
+);
+
 CREATE TABLE IF NOT EXISTS gate_results (
   run_id TEXT NOT NULL,
   task_id TEXT NOT NULL,
