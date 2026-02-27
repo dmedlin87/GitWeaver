@@ -1,19 +1,38 @@
 
 import { describe, it, expect, afterEach } from "vitest";
-import { OrchestratorDb } from "../../src/persistence/sqlite.js";
+import { DatabaseSync } from "node:sqlite";
+import { OrchestratorDb, isSqliteBusyError } from "../../src/persistence/sqlite.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 describe("OrchestratorDb", () => {
-    let tempDir: string;
+    let tempDir: string | undefined;
     let dbPath: string;
-    let db: OrchestratorDb;
+    let db: OrchestratorDb | undefined;
 
     afterEach(() => {
-        if (db) db.close();
+        if (db) {
+            db.close();
+            db = undefined;
+        }
         if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+        tempDir = undefined;
     });
+
+    function makeRun(runId: string) {
+        const now = new Date().toISOString();
+        return {
+            runId,
+            objective: "objective",
+            repoPath: "/tmp",
+            baselineCommit: "sha",
+            configHash: "hash",
+            state: "INGEST" as const,
+            createdAt: now,
+            updatedAt: now
+        };
+    }
 
     it("executes operations in a transaction", () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-"));
@@ -22,16 +41,7 @@ describe("OrchestratorDb", () => {
         db.migrate();
 
         db.transaction(() => {
-            db.upsertRun({
-                runId: "run-txn",
-                objective: "objective",
-                repoPath: "/tmp",
-                baselineCommit: "sha",
-                configHash: "hash",
-                state: "INGEST",
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            });
+            db.upsertRun(makeRun("run-txn"));
         });
 
         const run = db.getRun("run-txn");
@@ -47,16 +57,7 @@ describe("OrchestratorDb", () => {
 
         try {
             db.transaction(() => {
-                db.upsertRun({
-                    runId: "run-rollback",
-                    objective: "objective",
-                    repoPath: "/tmp",
-                    baselineCommit: "sha",
-                    configHash: "hash",
-                    state: "INGEST",
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString()
-                });
+                db.upsertRun(makeRun("run-rollback"));
                 throw new Error("Simulated failure");
             });
         } catch (e) {
@@ -97,5 +98,59 @@ describe("OrchestratorDb", () => {
             eventSeq: 41,
             commitHash: "abc123"
         });
+    });
+
+    it("applies SQLite WAL, synchronous, and busy timeout pragmas", () => {
+        tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-pragmas-"));
+        dbPath = join(tempDir, "state.sqlite");
+        db = new OrchestratorDb(dbPath, {
+            journalMode: "WAL",
+            synchronous: "NORMAL",
+            busyTimeoutMs: 3210
+        });
+        db.migrate();
+
+        const native = (db as unknown as { db: DatabaseSync }).db;
+        const journal = native.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
+        const synchronous = native.prepare("PRAGMA synchronous").get() as { synchronous: number };
+        const timeout = native.prepare("PRAGMA busy_timeout").get() as { timeout: number };
+
+        expect(journal.journal_mode).toBe("wal");
+        expect(synchronous.synchronous).toBe(1);
+        expect(timeout.timeout).toBe(3210);
+    });
+
+    it("retries locked writes with bounded retry telemetry", () => {
+        tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-busy-"));
+        dbPath = join(tempDir, "state.sqlite");
+
+        const retryAttempts: number[] = [];
+        const exhaustedAttempts: number[] = [];
+        db = new OrchestratorDb(dbPath, {
+            busyTimeoutMs: 1,
+            busyRetryMax: 2,
+            onBusyRetry: (_operation, attempt) => retryAttempts.push(attempt),
+            onBusyExhausted: (_operation, attempts) => exhaustedAttempts.push(attempts)
+        });
+        db.migrate();
+
+        const locker = new DatabaseSync(dbPath);
+        locker.exec("BEGIN IMMEDIATE");
+
+        try {
+            expect(() => db.upsertRun(makeRun("run-busy"))).toThrowError(/database is locked/i);
+        } finally {
+            locker.exec("ROLLBACK");
+            locker.close();
+        }
+
+        expect(retryAttempts).toEqual([1, 2]);
+        expect(exhaustedAttempts).toEqual([2]);
+    });
+
+    it("detects SQLITE_BUSY lock errors from node:sqlite error shapes", () => {
+        expect(isSqliteBusyError({ message: "database is locked" })).toBe(true);
+        expect(isSqliteBusyError({ errcode: 5, errstr: "database is locked", code: "ERR_SQLITE_ERROR" })).toBe(true);
+        expect(isSqliteBusyError({ message: "some other failure" })).toBe(false);
     });
 });

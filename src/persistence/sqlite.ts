@@ -30,6 +30,8 @@ const DEFAULT_DB_OPTIONS: Required<Pick<OrchestratorDbOptions, "journalMode" | "
   busyRetryMax: 2
 };
 
+const SQLITE_BUSY_ERRCODE = 5;
+
 const SLEEP_BUFFER = new SharedArrayBuffer(4);
 const SLEEP_VIEW = new Int32Array(SLEEP_BUFFER);
 
@@ -53,18 +55,20 @@ export class OrchestratorDb {
   }
 
   public migrate(): void {
-    const bundledPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url));
-    const sourceFallback = join(process.cwd(), "src", "persistence", "migrations", "001_init.sql");
-    const migrationPath = existsSync(bundledPath) ? bundledPath : sourceFallback;
-    const sql = readFileSync(migrationPath, "utf8");
-    this.db.exec(sql);
+    this.withBusyRetry("migrate", () => {
+      const bundledPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url));
+      const sourceFallback = join(process.cwd(), "src", "persistence", "migrations", "001_init.sql");
+      const migrationPath = existsSync(bundledPath) ? bundledPath : sourceFallback;
+      const sql = readFileSync(migrationPath, "utf8");
+      this.db.exec(sql);
 
-    // Backfill columns for older state.sqlite files created before current schema.
-    this.ensureColumn("provider_health", "cooldown_until", "TEXT");
-    this.ensureColumn("provider_health", "consecutive_failures", "INTEGER NOT NULL DEFAULT 0");
-    this.ensureColumn("provider_health", "backoff_sec", "INTEGER NOT NULL DEFAULT 0");
-    this.ensureColumn("resume_checkpoints", "task_id", "TEXT");
-    this.ensureColumn("resume_checkpoints", "state", "TEXT");
+      // Backfill columns for older state.sqlite files created before current schema.
+      this.ensureColumn("provider_health", "cooldown_until", "TEXT");
+      this.ensureColumn("provider_health", "consecutive_failures", "INTEGER NOT NULL DEFAULT 0");
+      this.ensureColumn("provider_health", "backoff_sec", "INTEGER NOT NULL DEFAULT 0");
+      this.ensureColumn("resume_checkpoints", "task_id", "TEXT");
+      this.ensureColumn("resume_checkpoints", "state", "TEXT");
+    });
   }
 
   public transaction<T>(fn: () => T): T {
@@ -189,22 +193,24 @@ export class OrchestratorDb {
         contextPackHash: string;
       }
     | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT attempt, immutable_sections_hash, task_contract_hash, context_pack_hash
-         FROM prompt_envelopes
-         WHERE run_id=? AND task_id=?
-         ORDER BY attempt DESC
-         LIMIT 1`
-      )
-      .get(runId, taskId) as
-      | {
-          attempt: number;
-          immutable_sections_hash: string;
-          task_contract_hash: string;
-          context_pack_hash: string;
-        }
-      | undefined;
+    const row = this.withBusyRetry("getLatestPromptEnvelope", () => {
+      return this.db
+        .prepare(
+          `SELECT attempt, immutable_sections_hash, task_contract_hash, context_pack_hash
+           FROM prompt_envelopes
+           WHERE run_id=? AND task_id=?
+           ORDER BY attempt DESC
+           LIMIT 1`
+        )
+        .get(runId, taskId) as
+        | {
+            attempt: number;
+            immutable_sections_hash: string;
+            task_contract_hash: string;
+            context_pack_hash: string;
+          }
+        | undefined;
+    });
 
     if (!row) {
       return undefined;
@@ -255,9 +261,11 @@ export class OrchestratorDb {
 
     const uniqueKeys = [...new Set(artifactKeys)];
     const placeholders = uniqueKeys.map(() => "?").join(", ");
-    const rows = this.db
-      .prepare(`SELECT artifact_key, signature FROM artifacts WHERE run_id=? AND artifact_key IN (${placeholders})`)
-      .all(runId, ...uniqueKeys) as Array<{ artifact_key: string; signature: string }>;
+    const rows = this.withBusyRetry("listArtifactSignatures", () => {
+      return this.db
+        .prepare(`SELECT artifact_key, signature FROM artifacts WHERE run_id=? AND artifact_key IN (${placeholders})`)
+        .all(runId, ...uniqueKeys) as Array<{ artifact_key: string; signature: string }>;
+    });
 
     return rows.reduce<Record<string, string>>((acc, row) => {
       acc[row.artifact_key] = row.signature;
@@ -278,15 +286,17 @@ export class OrchestratorDb {
     expiresAt: string;
     fencingToken: number;
   }> {
-    const rows = this.db
-      .prepare(`SELECT run_id, resource_key, owner_task_id, expires_at, fencing_token FROM leases WHERE run_id=? ORDER BY resource_key`)
-      .all(runId) as Array<{
-      run_id: string;
-      resource_key: string;
-      owner_task_id: string;
-      expires_at: string;
-      fencing_token: number;
-    }>;
+    const rows = this.withBusyRetry("listLeases", () => {
+      return this.db
+        .prepare(`SELECT run_id, resource_key, owner_task_id, expires_at, fencing_token FROM leases WHERE run_id=? ORDER BY resource_key`)
+        .all(runId) as Array<{
+        run_id: string;
+        resource_key: string;
+        owner_task_id: string;
+        expires_at: string;
+        fencing_token: number;
+      }>;
+    });
 
     return rows.map((row) => ({
       runId: row.run_id,
@@ -358,22 +368,24 @@ export class OrchestratorDb {
   }
 
   public listProviderHealth(runId: string): ProviderHealthSnapshot[] {
-    const rows = this.db
-      .prepare(
-        `SELECT provider, score, last_errors, token_bucket, cooldown_until, consecutive_failures, backoff_sec
-         FROM provider_health
-         WHERE run_id=?
-         ORDER BY provider`
-      )
-      .all(runId) as Array<{
-      provider: string;
-      score: number;
-      last_errors: string;
-      token_bucket: number;
-      cooldown_until: string | null;
-      consecutive_failures: number | null;
-      backoff_sec: number | null;
-    }>;
+    const rows = this.withBusyRetry("listProviderHealth", () => {
+      return this.db
+        .prepare(
+          `SELECT provider, score, last_errors, token_bucket, cooldown_until, consecutive_failures, backoff_sec
+           FROM provider_health
+           WHERE run_id=?
+           ORDER BY provider`
+        )
+        .all(runId) as Array<{
+        provider: string;
+        score: number;
+        last_errors: string;
+        token_bucket: number;
+        cooldown_until: string | null;
+        consecutive_failures: number | null;
+        backoff_sec: number | null;
+      }>;
+    });
 
     return rows.map((row) => ({
       provider: row.provider as ProviderHealthSnapshot["provider"],
@@ -404,18 +416,20 @@ export class OrchestratorDb {
   }
 
   public getResumeCheckpoint(runId: string): ResumeCheckpoint | undefined {
-    const row = this.db
-      .prepare(`SELECT run_id, task_id, state, event_seq, commit_hash, updated_at FROM resume_checkpoints WHERE run_id=?`)
-      .get(runId) as
-      | {
-          run_id: string;
-          task_id: string | null;
-          state: string | null;
-          event_seq: number;
-          commit_hash: string;
-          updated_at: string;
-        }
-      | undefined;
+    const row = this.withBusyRetry("getResumeCheckpoint", () => {
+      return this.db
+        .prepare(`SELECT run_id, task_id, state, event_seq, commit_hash, updated_at FROM resume_checkpoints WHERE run_id=?`)
+        .get(runId) as
+        | {
+            run_id: string;
+            task_id: string | null;
+            state: string | null;
+            event_seq: number;
+            commit_hash: string;
+            updated_at: string;
+          }
+        | undefined;
+    });
 
     if (!row) {
       return undefined;
@@ -432,19 +446,21 @@ export class OrchestratorDb {
   }
 
   public getRun(runId: string): RunRecord | undefined {
-    const row = this.db.prepare(`SELECT * FROM runs WHERE run_id=?`).get(runId) as
-      | {
-          run_id: string;
-          objective: string;
-          repo_path: string;
-          baseline_commit: string;
-          config_hash: string;
-          state: string;
-          created_at: string;
-          updated_at: string;
-          reason_code: string | null;
-        }
-      | undefined;
+    const row = this.withBusyRetry("getRun", () => {
+      return this.db.prepare(`SELECT * FROM runs WHERE run_id=?`).get(runId) as
+        | {
+            run_id: string;
+            objective: string;
+            repo_path: string;
+            baseline_commit: string;
+            config_hash: string;
+            state: string;
+            created_at: string;
+            updated_at: string;
+            reason_code: string | null;
+          }
+        | undefined;
+    });
 
     if (!row) {
       return undefined;
@@ -464,18 +480,20 @@ export class OrchestratorDb {
   }
 
   public listTasks(runId: string): TaskRecord[] {
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE run_id=? ORDER BY task_id`).all(runId) as Array<{
-      run_id: string;
-      task_id: string;
-      provider: string;
-      type: string;
-      state: string;
-      attempts: number;
-      contract_hash: string;
-      lease_token: number | null;
-      commit_hash: string | null;
-      reason_code: string | null;
-    }>;
+    const rows = this.withBusyRetry("listTasks", () => {
+      return this.db.prepare(`SELECT * FROM tasks WHERE run_id=? ORDER BY task_id`).all(runId) as Array<{
+        run_id: string;
+        task_id: string;
+        provider: string;
+        type: string;
+        state: string;
+        attempts: number;
+        contract_hash: string;
+        lease_token: number | null;
+        commit_hash: string | null;
+        reason_code: string | null;
+      }>;
+    });
 
     return rows.map((row) => ({
       runId: row.run_id,
@@ -496,16 +514,20 @@ export class OrchestratorDb {
   }
 
   private applyPragmas(): void {
-    this.db.exec(`PRAGMA journal_mode = ${this.options.journalMode}`);
-    this.db.exec(`PRAGMA synchronous = ${this.options.synchronous}`);
-    this.db.exec(`PRAGMA busy_timeout = ${this.options.busyTimeoutMs}`);
+    this.withBusyRetry("applyPragmas", () => {
+      this.db.exec(`PRAGMA journal_mode = ${this.options.journalMode}`);
+      this.db.exec(`PRAGMA synchronous = ${this.options.synchronous}`);
+      this.db.exec(`PRAGMA busy_timeout = ${this.options.busyTimeoutMs}`);
+    });
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
     try {
       this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-    } catch {
-      // Column already exists or table is unavailable.
+    } catch (error) {
+      if (!isExpectedSchemaBackfillError(error)) {
+        throw error;
+      }
     }
   }
 
@@ -516,8 +538,9 @@ export class OrchestratorDb {
         return fn();
       } catch (error) {
         const normalized = normalizeError(error);
-        if (!this.isBusyError(normalized) || attempt >= this.options.busyRetryMax) {
-          if (this.isBusyError(normalized)) {
+        const busy = isSqliteBusyError(normalized);
+        if (!busy || attempt >= this.options.busyRetryMax) {
+          if (busy) {
             this.options.onBusyExhausted?.(operation, attempt, normalized);
           }
           throw error;
@@ -528,10 +551,6 @@ export class OrchestratorDb {
         sleepSync(Math.min(250, 25 * attempt));
       }
     }
-  }
-
-  private isBusyError(error: Error): boolean {
-    return error.message.includes("SQLITE_BUSY");
   }
 }
 
@@ -552,4 +571,59 @@ function parseJsonArray(raw: string): string[] {
     return [];
   }
   return [];
+}
+
+export function isSqliteBusyError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const {
+    code,
+    errcode,
+    errstr,
+    message
+  } = error as {
+    code?: unknown;
+    errcode?: unknown;
+    errstr?: unknown;
+    message?: unknown;
+  };
+
+  if (typeof errcode === "number" && errcode === SQLITE_BUSY_ERRCODE) {
+    return true;
+  }
+
+  if (typeof code === "string" && code.toUpperCase().includes("SQLITE_BUSY")) {
+    return true;
+  }
+
+  return containsBusyText(errstr) || containsBusyText(message);
+}
+
+function containsBusyText(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("sqlite_busy")
+    || normalized.includes("database is locked")
+    || normalized.includes("database table is locked")
+  );
+}
+
+function isExpectedSchemaBackfillError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const { message } = error as { message?: unknown };
+  if (typeof message !== "string") {
+    return false;
+  }
+
+  const normalized = message.toLowerCase();
+  return normalized.includes("duplicate column name") || normalized.includes("no such table");
 }

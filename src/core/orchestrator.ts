@@ -32,7 +32,7 @@ import { assertPromptDrift, buildPromptEnvelope } from "../planning/prompt-envel
 import { classifyFailure, isNonRepairableExecutionFailure } from "../repair/failure-classifier.js";
 import { RepairBudget } from "../repair/repair-budget.js";
 import { buildRepairTask } from "../repair/repair-planner.js";
-import { OrchestratorDb } from "../persistence/sqlite.js";
+import { OrchestratorDb, isSqliteBusyError } from "../persistence/sqlite.js";
 import { EventLog } from "../persistence/event-log.js";
 import { writeRunManifest } from "../persistence/manifest.js";
 import { reconcileResume } from "../persistence/resume-reconcile.js";
@@ -1263,7 +1263,7 @@ export class Orchestrator {
 
   private extractReasonCode(error: unknown): ReasonCode {
     const reasonCode = (error as { reasonCode?: ReasonCode }).reasonCode;
-    if (!reasonCode && (error as Error).message?.includes("SQLITE_BUSY")) {
+    if (!reasonCode && isSqliteBusyError(error)) {
       return REASON_CODES.SQLITE_BUSY_EXHAUSTED;
     }
     return reasonCode ?? REASON_CODES.ABORTED_POLICY;
