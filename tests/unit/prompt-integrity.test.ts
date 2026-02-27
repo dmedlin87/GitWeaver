@@ -66,8 +66,22 @@ describe('Prompt Integrity & Determinism', () => {
 
   describe('Plan Freeze Determinism', () => {
     it('should produce identical dagHash for same DAG regardless of node/edge order', () => {
-      const node1 = { taskId: 'task1', contractHash: 'h1' } as TaskContract;
-      const node2 = { taskId: 'task2', contractHash: 'h2' } as TaskContract;
+      const node1 = {
+        taskId: 'task1',
+        contractHash: 'h1',
+        dependencies: [],
+        writeScope: { allow: [], deny: [] },
+        commandPolicy: { allow: [], deny: [] },
+        artifactIO: { consumes: [], produces: [] }
+      } as unknown as TaskContract;
+      const node2 = {
+        taskId: 'task2',
+        contractHash: 'h2',
+        dependencies: [],
+        writeScope: { allow: [], deny: [] },
+        commandPolicy: { allow: [], deny: [] },
+        artifactIO: { consumes: [], produces: [] }
+      } as unknown as TaskContract;
 
       const dag1: DagSpec = {
         nodes: [node1, node2],
