@@ -7,7 +7,16 @@ describe("redactSensitive", () => {
     const output = redactSensitive(input);
     expect(output).toContain("[REDACTED]");
     expect(output).not.toContain("sk-abcdef1234567890abcdef1234567890");
-    expect(output).toContain("Here is my key: [REDACTED] and more text");
+    expect(output).toBe("Here is my key: [REDACTED] and more text");
+  });
+
+  it("redacts multiple OpenAI-style keys", () => {
+    const input = "Key1: sk-abcdef1234567890abcdef1234567890, Key2: sk-1234567890abcdef1234567890abcdef";
+    const output = redactSensitive(input);
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk-abcdef1234567890abcdef1234567890");
+    expect(output).not.toContain("sk-1234567890abcdef1234567890abcdef");
+    expect(output).toBe("Key1: [REDACTED], Key2: [REDACTED]");
   });
 
   it("redacts AWS access keys", () => {
@@ -22,7 +31,9 @@ describe("redactSensitive", () => {
       "api_token = abcdef12345678",
       "auth-token: abcdef12345678",
       "access token 'abcdef12345678'",
-      "secret_token: abcdef12345678"
+      "secret_token: abcdef12345678",
+      "refresh token:abcdef12345678", // no space after colon
+      "api-token:ABCDEF12345678", // uppercase value
     ];
     for (const input of inputs) {
       const output = redactSensitive(input);
@@ -45,5 +56,28 @@ describe("redactSensitive", () => {
     const output = redactSensitive(input);
     expect(output).toContain("OPENAI_API_KEY=[REDACTED]");
     expect(output).toContain("AWS_ACCESS_KEY_ID=[REDACTED]");
+  });
+
+  it("handles empty input", () => {
+    expect(redactSensitive("")).toBe("");
+  });
+
+  it("handles input with no sensitive data", () => {
+    const input = "This is a safe string with no keys.";
+    expect(redactSensitive(input)).toBe(input);
+  });
+
+  it("does not redact short keys", () => {
+    const input = "sk-short";
+    expect(redactSensitive(input)).toBe(input);
+  });
+
+  it("handles overlapping patterns sequentially", () => {
+    // Demonstrates that patterns are applied in order.
+    // If pattern 1 matches and replaces, pattern 2 might not match anymore.
+    const input = "overlap-pattern-match";
+    const extraPatterns = [/overlap/g, /lap-pattern/g];
+    const output = redactSensitive(input, extraPatterns);
+    expect(output).toBe("[REDACTED]-pattern-match");
   });
 });
