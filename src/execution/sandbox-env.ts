@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderId } from "../core/types.js";
@@ -18,17 +18,33 @@ function providerConfigPaths(provider: ProviderId): string[] {
   return [join(home, ".gemini"), join(home, ".config", "gemini")];
 }
 
-export function createSandboxHome(runId: string, taskId: string, provider: ProviderId): string {
-  const home = join(tmpdir(), "orc-home", runId, taskId);
-  mkdirSync(home, { recursive: true });
-
-  for (const source of providerConfigPaths(provider)) {
-    if (!existsSync(source)) {
-      continue;
-    }
-    const target = join(home, source.split(/[\\/]/).pop() ?? "provider-config");
-    cpSync(source, target, { recursive: true, errorOnExist: false, force: true });
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await fs.access(path);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+export async function createSandboxHome(runId: string, taskId: string, provider: ProviderId): Promise<string> {
+  const home = join(tmpdir(), "orc-home", runId, taskId);
+  await fs.mkdir(home, { recursive: true });
+
+  const tasks = [];
+  for (const source of providerConfigPaths(provider)) {
+    tasks.push(
+      (async () => {
+        if (!(await fileExists(source))) {
+          return;
+        }
+        const target = join(home, source.split(/[\\/]/).pop() ?? "provider-config");
+        await fs.cp(source, target, { recursive: true, errorOnExist: false, force: true });
+      })()
+    );
+  }
+
+  await Promise.all(tasks);
 
   return home;
 }

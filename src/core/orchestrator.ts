@@ -499,7 +499,7 @@ export class Orchestrator {
       });
 
       const prompt = this.composeExecutionPrompt(task, envelope, contextPack);
-      const sandboxHome = createSandboxHome(ctx.run.runId, task.taskId, task.provider);
+      const sandboxHome = await createSandboxHome(ctx.run.runId, task.taskId, task.provider);
       const env = buildSandboxEnv(process.env, sandboxHome);
 
       const adapter = getProviderAdapter(task.provider);
