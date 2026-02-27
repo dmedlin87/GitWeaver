@@ -138,9 +138,11 @@ async function mergedTasksFromGit(repoPath: string, runId: string): Promise<stri
   const chunks = result.stdout.split("\u0000");
   const ids = new Set<string>();
   for (const chunk of chunks) {
-    const match = chunk.match(/ORCH_TASK_ID=([^\s]+)/);
-    if (match?.[1]) {
-      ids.add(match[1]);
+    const matches = chunk.matchAll(/ORCH_TASK_ID=([^\s]+)/g);
+    for (const match of matches) {
+      if (match[1]) {
+        ids.add(match[1]);
+      }
     }
   }
   return [...ids];
