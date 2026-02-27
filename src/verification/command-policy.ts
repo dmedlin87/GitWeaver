@@ -1,3 +1,5 @@
+import type { RuntimeConfig } from "../core/config.js";
+
 export interface CommandPolicy {
   allow: string[];
   deny: string[];
@@ -9,29 +11,57 @@ export interface PolicyValidation {
   reason?: string;
 }
 
-export function validateCommand(command: string, policy: CommandPolicy): PolicyValidation {
-  if (policy.allow.length === 0) {
-    return {
-      allowed: false,
-      reason: "Command policy allowlist is empty (deny-by-default)"
-    };
+export function validateCommand(command: string, policy: CommandPolicy, config?: RuntimeConfig): PolicyValidation {
+  if (!command) {
+    return { allowed: true };
   }
 
-  for (const deny of policy.deny) {
-    if (command.includes(deny)) {
+  // 1. Check against the global denylist from config
+  if (config?.defaultCommandDeny) {
+    for (const denied of config.defaultCommandDeny) {
+      if (command.includes(denied)) {
+        return {
+          allowed: false,
+          reason: `Gate command rejected: matches denylist pattern '${denied}'`
+        };
+      }
+    }
+  }
+
+  // 2. Check against the task-specific denylist
+  for (const denied of policy.deny) {
+    if (command.includes(denied)) {
       return {
         allowed: false,
-        reason: `Command contains denied pattern: '${deny}'`
+        reason: `Gate command rejected: matches task denylist pattern '${denied}'`
       };
     }
   }
 
-  const allowed = policy.allow.some((pattern) => command.startsWith(pattern));
-  if (!allowed) {
-    return {
-      allowed: false,
-      reason: `Command does not start with any allowed prefix`
-    };
+  // 3. Check for dangerous shell metacharacters.
+  // We are very strict here because gateCommand is executed in a shell.
+  // We disallow most chaining and redirection characters.
+  const dangerous = [";", "&", "|", ">", "<", "`", "$", "\n", "\r"];
+  for (const char of dangerous) {
+    if (command.includes(char)) {
+      return {
+        allowed: false,
+        reason: `Gate command rejected: contains dangerous shell character '${char}'`
+      };
+    }
+  }
+
+  // 4. Ensure it starts with an allowed base command if the policy specifies any
+  if (policy.allow.length > 0) {
+    const hasAllowedBase = policy.allow.some(
+      (allowed) => command === allowed || command.startsWith(allowed + " ")
+    );
+    if (!hasAllowedBase) {
+      return {
+        allowed: false,
+        reason: "Gate command rejected: not authorized by task command policy"
+      };
+    }
   }
 
   return { allowed: true };
