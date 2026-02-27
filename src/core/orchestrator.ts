@@ -6,7 +6,7 @@ import { Logger } from "../observability/logger.js";
 import { Metrics } from "../observability/metrics.js";
 import { REASON_CODES, type ReasonCode } from "./reason-codes.js";
 import { assertRunTransition } from "./state-machine.js";
-import type { DagSpec, ProviderHealthSnapshot, ProviderId, ProviderStatus, RoutingDecision, RunRecord, TaskContract, TaskRecord } from "./types.js";
+import type { DagSpec, ProviderHealthSnapshot, ProviderId, RunRecord, TaskContract, TaskRecord } from "./types.js";
 import { sha256, stableStringify } from "./hash.js";
 import { runCommand } from "./shell.js";
 import { runPreflight, type PreflightOptions } from "../providers/preflight.js";
@@ -74,19 +74,7 @@ interface RuntimeContext {
   runDir: string;
   db: OrchestratorDb;
   events: EventLog;
-  providerVersions: Record<string, string | undefined>;
-  routeDecisions: TaskRoutingDecision[];
   onProgress?: (update: ProgressUpdate) => void;
-}
-
-interface TaskRoutingDecision {
-  taskId: string;
-  taskType: TaskContract["type"];
-  plannedProvider: ProviderId;
-  routedProvider: ProviderId;
-  routingReason: string;
-  fallbackProvider?: ProviderId;
-  fallbackReason?: string;
 }
 
 export class Orchestrator {
@@ -129,8 +117,6 @@ export class Orchestrator {
       runDir,
       db,
       events,
-      providerVersions: {},
-      routeDecisions: [],
       onProgress: options.onProgress
     };
 
@@ -141,11 +127,9 @@ export class Orchestrator {
       await this.preflightStageA(ctx, options);
       await this.ensureBaseline(ctx, options);
       const frozenDag = await this.plan(ctx, options);
-      this.writeManifest(ctx, frozenDag);
 
       const providersInDag = [...new Set(frozenDag.nodes.map((node) => node.provider))] as ProviderId[];
       await this.preflightStageB(ctx, providersInDag, options);
-      this.writeManifest(ctx, frozenDag);
 
       if (options.dryRun) {
         this.progress(ctx, "dry_run", "Dry run completed after planning");
@@ -568,14 +552,6 @@ export class Orchestrator {
         throw this.errorWithCode(`Task ${task.taskId} produced no commit`, REASON_CODES.NO_COMMIT_PRODUCED);
       }
 
-      record.state = "COMMIT_PRODUCED";
-      record.commitHash = commitHash;
-      ctx.db.upsertTask(record);
-      ctx.events.append(ctx.run.runId, "TASK_COMMIT_PRODUCED", {
-        taskId: task.taskId,
-        commitHash
-      });
-
       const analysis = await analyzeCommit(worktree.path, commitHash);
       const scope = evaluateScope(worktree.path, analysis.changedFiles, task.writeScope.allow, task.writeScope.deny);
       if (!scope.allowed) {
@@ -583,10 +559,8 @@ export class Orchestrator {
       }
 
       record.state = "SCOPE_PASSED";
+      record.commitHash = commitHash;
       ctx.db.upsertTask(record);
-      record.state = "MERGE_QUEUED";
-      ctx.db.upsertTask(record);
-      ctx.events.append(ctx.run.runId, "TASK_MERGE_QUEUED", { taskId: task.taskId, commitHash });
 
       await mergeQueue.enqueue(async () => {
         for (const lease of leases) {
@@ -608,9 +582,6 @@ export class Orchestrator {
         }
 
         await this.integrateCommit(ctx, task, commitHash, leases[0]?.fencingToken ?? 0, leases[0]?.resourceKey, lockManager);
-        record.state = "MERGED";
-        ctx.db.upsertTask(record);
-        ctx.events.append(ctx.run.runId, "TASK_MERGED", { taskId: task.taskId, commitHash });
 
         const verify = verifyTaskOutput(ctx.run.repoPath, task);
         if (!verify.ok) {
@@ -759,7 +730,6 @@ export class Orchestrator {
   private async preflightStageA(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
     this.progress(ctx, "preflight_a_start", "Preflight stage A starting");
     const preflight = await runPreflight(["codex"], options);
-    this.recordProviderVersions(ctx, preflight.statuses);
     ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_A", {
       statuses: preflight.statuses,
       installPlan: preflight.installPlan,
@@ -774,7 +744,6 @@ export class Orchestrator {
   private async preflightStageB(ctx: RuntimeContext, providers: ProviderId[], options: RunCliOptions): Promise<void> {
     this.progress(ctx, "preflight_b_start", `Preflight stage B starting for: ${providers.join(", ")}`);
     const preflight = await runPreflight(providers, options);
-    this.recordProviderVersions(ctx, preflight.statuses);
     ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_B", {
       statuses: preflight.statuses,
       installPlan: preflight.installPlan,
@@ -821,19 +790,16 @@ export class Orchestrator {
       : (await generateDagWithCodex(options.prompt, ctx.run.repoPath)).dag;
 
     const healthSnapshots = this.defaultHealth();
-    const routeDecisions: TaskRoutingDecision[] = [];
     const routed: DagSpec = {
       ...planned,
       nodes: planned.nodes.map((node) => {
         const decision = routeTask(node.type, healthSnapshots);
-        routeDecisions.push(this.buildRouteDecision(node.taskId, node.type, node.provider, decision));
         return {
           ...node,
           provider: decision.provider
         };
       })
     };
-    ctx.routeDecisions = routeDecisions;
 
     const audited = auditPlan(routed);
     const frozen = freezePlan(audited.dag);
@@ -841,15 +807,23 @@ export class Orchestrator {
     this.transitionRun(ctx, "PLAN_FROZEN");
 
     writeFileSync(join(ctx.runDir, "plan.raw.json"), JSON.stringify(planned, null, 2), "utf8");
-    writeFileSync(join(ctx.runDir, "plan.routed.json"), JSON.stringify({ dag: routed, routeDecisions }, null, 2), "utf8");
     writeFileSync(join(ctx.runDir, "plan.audited.json"), JSON.stringify(audited, null, 2), "utf8");
     writeFileSync(join(ctx.runDir, "plan.frozen.json"), JSON.stringify(frozen, null, 2), "utf8");
+
+    writeRunManifest(join(ctx.runDir, "manifest.json"), {
+      runId: ctx.run.runId,
+      baselineCommit: ctx.run.baselineCommit,
+      configHash: ctx.run.configHash,
+      dagHash: frozen.dag.dagHash ?? "",
+      plannerRawPath: join(ctx.runDir, "plan.raw.json"),
+      providerVersions: {},
+      createdAt: new Date().toISOString()
+    });
 
     ctx.events.append(ctx.run.runId, "PLAN_FROZEN", {
       dagHash: frozen.dag.dagHash,
       findings: audited.findings,
-      immutablePlanHash: frozen.immutablePlanHash,
-      routeDecisions
+      immutablePlanHash: frozen.immutablePlanHash
     });
     this.progress(ctx, "plan_done", `Plan frozen with ${frozen.dag.nodes.length} task(s)`);
 
@@ -886,41 +860,6 @@ export class Orchestrator {
     return {
       nodes: [task],
       edges: []
-    };
-  }
-
-  private writeManifest(ctx: RuntimeContext, dag: DagSpec): void {
-    writeRunManifest(join(ctx.runDir, "manifest.json"), {
-      runId: ctx.run.runId,
-      baselineCommit: ctx.run.baselineCommit,
-      configHash: ctx.run.configHash,
-      dagHash: dag.dagHash ?? "",
-      plannerRawPath: join(ctx.runDir, "plan.raw.json"),
-      providerVersions: { ...ctx.providerVersions },
-      createdAt: new Date().toISOString()
-    });
-  }
-
-  private recordProviderVersions(ctx: RuntimeContext, statuses: ProviderStatus[]): void {
-    for (const status of statuses) {
-      ctx.providerVersions[status.provider] = status.versionInstalled ?? status.versionLatest;
-    }
-  }
-
-  private buildRouteDecision(
-    taskId: string,
-    taskType: TaskContract["type"],
-    plannedProvider: ProviderId,
-    decision: RoutingDecision
-  ): TaskRoutingDecision {
-    return {
-      taskId,
-      taskType,
-      plannedProvider,
-      routedProvider: decision.provider,
-      routingReason: decision.routingReason,
-      fallbackProvider: decision.fallbackProvider,
-      fallbackReason: decision.fallbackReason
     };
   }
 
