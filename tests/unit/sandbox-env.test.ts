@@ -36,6 +36,7 @@ describe("buildSandboxEnv", () => {
 
 describe("createSandboxHome", () => {
   const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
   const tempHome = join(tmpdir(), "test-home-" + Date.now());
 
   beforeEach(() => {
@@ -46,11 +47,18 @@ describe("createSandboxHome", () => {
   });
 
   afterEach(() => {
-    process.env.HOME = originalHome;
-    // Restore USERPROFILE
-    if (process.env.USERPROFILE === tempHome) {
-       delete process.env.USERPROFILE;
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
     }
+
+    if (originalUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = originalUserProfile;
+    }
+
     rmSync(tempHome, { recursive: true, force: true });
   });
 
