@@ -37,7 +37,7 @@ describe("buildSandboxEnv", () => {
 describe("createSandboxHome", () => {
   const originalHome = process.env.HOME;
   const originalUserProfile = process.env.USERPROFILE;
-  const tempHome = join(tmpdir(), "test-home-" + Date.now());
+  const tempHome = join(tmpdir(), "orch-test-home-" + Date.now());
 
   beforeEach(() => {
     mkdirSync(tempHome, { recursive: true });
@@ -62,11 +62,11 @@ describe("createSandboxHome", () => {
     rmSync(tempHome, { recursive: true, force: true });
   });
 
-  it("copies provider config files", () => {
+  it("copies provider config files", async () => {
     const codexConfig = join(tempHome, ".codex");
     writeFileSync(codexConfig, "config content");
 
-    const sandbox = createSandboxHome("run1", "task1", "codex");
+    const sandbox = await createSandboxHome("run1", "task1", "codex");
     const targetConfig = join(sandbox, ".codex");
 
     expect(existsSync(targetConfig)).toBe(true);
@@ -76,19 +76,9 @@ describe("createSandboxHome", () => {
     rmSync(sandbox, { recursive: true, force: true });
   });
 
-  it("handles path separators correctly", () => {
-      // This test is to ensure our future change (using basename) works as expected.
-      // The current implementation splits by [\\/] and takes the last part.
-
-      const codexConfig = join(tempHome, ".codex");
-      writeFileSync(codexConfig, "config content");
-
-      const sandbox = createSandboxHome("run1", "task2", "codex");
-      const targetConfig = join(sandbox, ".codex");
-
-      expect(existsSync(targetConfig)).toBe(true);
-
-      // Clean up sandbox
-      rmSync(sandbox, { recursive: true, force: true });
+  it("handles missing provider config gracefully", async () => {
+    const sandboxPath = await createSandboxHome("run1", "task2", "codex");
+    expect(existsSync(sandboxPath)).toBe(true);
+    expect(existsSync(join(sandboxPath, ".codex"))).toBe(false);
   });
 });
