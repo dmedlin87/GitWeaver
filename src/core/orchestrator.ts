@@ -148,11 +148,9 @@ export class Orchestrator {
         contractHash: node.contractHash
       }));
 
-      db.transaction(() => {
-        for (const task of taskRecords) {
-          db.upsertTask(task);
-        }
-      });
+      for (const task of taskRecords) {
+        db.upsertTask(task);
+      }
 
       const outcome = await this.executeDag(ctx, frozenDag, taskRecords, options);
       return outcome;
