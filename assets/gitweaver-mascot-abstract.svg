@@ -1,0 +1,65 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gloomy Neon Filters -->
+    <filter id="neon" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="intenseNeon" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <linearGradient id="threadGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="50%" stop-color="#7500FF"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Dark abstract face / hood -->
+  <!-- A sharp, angled cowl -->
+  <path d="M 200 40 L 300 150 C 300 220 250 260 200 260 C 150 260 100 220 100 150 Z" 
+        fill="#0d0d12" stroke="#7500FF" stroke-width="3" filter="url(#neon)"/>
+  
+  <!-- Hood inner shading -->
+  <path d="M 200 40 L 250 150 L 200 180 L 150 150 Z" 
+        fill="#141420" stroke="#a040ff" stroke-width="1.5"/>
+
+  <!-- Sinister Eyes -->
+  <path d="M 140 130 L 180 145 L 150 155 Z" fill="#FF0040" filter="url(#intenseNeon)"/>
+  <path d="M 260 130 L 220 145 L 250 155 Z" fill="#FF0040" filter="url(#intenseNeon)"/>
+
+  <!-- Central "Weaver" Node / Spell Focus -->
+  <circle cx="200" cy="220" r="12" fill="#00E5FF" filter="url(#intenseNeon)"/>
+  <circle cx="200" cy="220" r="4" fill="#FFFFFF"/>
+
+  <!-- Symmetrical Abstract "Hands" channeling the code/threads -->
+  <!-- Left Hand Structure -->
+  <path d="M 80 260 L 120 190 L 140 210 L 110 270 Z" fill="#0d0d12" stroke="#00E5FF" stroke-width="2" filter="url(#neon)"/>
+  <path d="M 70 280 L 105 200 L 115 210 Z" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Right Hand Structure -->
+  <path d="M 320 260 L 280 190 L 260 210 L 290 270 Z" fill="#0d0d12" stroke="#00E5FF" stroke-width="2" filter="url(#neon)"/>
+  <path d="M 330 280 L 295 200 L 285 210 Z" fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Magic "Code" Threads weaving between hands and core -->
+  <!-- Primary infinite loop -->
+  <path d="M 120 200 Q 200 120 280 200 T 200 300 T 120 200" 
+        fill="none" stroke="url(#threadGradient)" stroke-width="2.5" filter="url(#neon)"/>
+  
+  <!-- Outer aura dash line -->
+  <path d="M 100 240 C 150 320 250 320 300 240" 
+        fill="none" stroke="#7500FF" stroke-width="2" stroke-dasharray="6 6" filter="url(#neon)"/>
+        
+  <!-- Inner connection -->
+  <path d="M 150 260 C 180 300 220 300 250 260" 
+        fill="none" stroke="#FF0040" stroke-width="1.5" filter="url(#intenseNeon)"/>
+
+</svg>
