@@ -111,6 +111,24 @@ describe("buildInstallPlan", () => {
     expect(summary.statuses[0]?.issues.some(i => i.includes("Authentication status unknown"))).toBe(true);
   });
 
+  it("adds specific detail to issues when auth fails with known error", async () => {
+    mockGeminiChecks({
+      authCode: 1,
+      authStderr: "Some specific API error"
+    });
+
+    const summary = await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Authentication status unknown"));
+    expect(issueWithDetail).toBeDefined();
+    expect(issueWithDetail).toContain("Exit code 1: Some specific API error");
+  });
+
   it("treats cached credentials output as authenticated for gemini", async () => {
     mockGeminiChecks({
       authCode: 1,

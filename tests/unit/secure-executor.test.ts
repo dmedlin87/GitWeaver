@@ -43,6 +43,18 @@ describe("AdvisoryExecutor", () => {
       expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.ORCH_OPENAI_API_KEY).toBe("sk-orch-12345");
     });
+
+    it("removes newly added sensitive tokens", () => {
+      const baseEnv = {
+        GITHUB_TOKEN: "ghp_12345",
+        GH_TOKEN: "ghp_67890",
+        NPM_TOKEN: "npm_abcde"
+      };
+      const env = executor.prepareEnvironment(baseEnv);
+      expect(env.GITHUB_TOKEN).toBeUndefined();
+      expect(env.GH_TOKEN).toBeUndefined();
+      expect(env.NPM_TOKEN).toBeUndefined();
+    });
   });
 
   describe("networkAllowed", () => {
