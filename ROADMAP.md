@@ -2,6 +2,7 @@
 
 Date: 2026-02-27
 Compared against:
+
 - `docs/cli_driven_heterogeneous_orchestrator_prd_technical_architecture_v_2_revised_final.md`
 - `README.md`
 - `src/**` and `tests/**`
@@ -11,6 +12,7 @@ Compared against:
 The core runtime exists and is functional: planning, routing, isolated worktrees, lock leasing with fencing, merge queue integration, scope checks, output verification, post-merge gate execution, repair budgeting, persistence, resume reconciliation, and provider preflight are implemented.
 
 Major remaining work is not the basic pipeline, but PRD alignment hardening:
+
 - stronger provenance/observability
 - recovery precedence completeness
 - scheduler resilience behavior under provider degradation
@@ -30,7 +32,7 @@ Major remaining work is not the basic pipeline, but PRD alignment hardening:
 ## Remaining Work (What Is Left)
 
 | Priority | PRD Reference | Gap | Current Evidence |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | P0 | 16.2 Recovery Algorithm | Resume reconciliation does not fully apply precedence `git -> event log -> sqlite`; event log is only lightly consulted. | `src/persistence/resume-reconcile.ts` uses git + sqlite heavily, with minimal event-log influence. |
 | P0 | 21. Hardened Test Matrix (7, 9) | No crash-mid-merge recovery test and no deterministic escalation payload test for bounded merge-conflict retries. | Missing integration/e2e coverage for those cases in `tests/**`. |
 | P1 | 18.1 Run Manifest | Manifest still lacks provider capabilities and prompt template hash lineage. | Provider versions are now populated, but capability metadata/template lineage are still absent. |
@@ -43,37 +45,44 @@ Major remaining work is not the basic pipeline, but PRD alignment hardening:
 ## Recommended PR Sequence (Ideal Size)
 
 Ideal PR size target for this repo right now:
+
 - 250-500 net LOC
 - 5-10 files
 - one operational theme per PR
 - includes tests proving the behavior
 
 ### PR 1: Merge Lifecycle + Provenance Hardening
+
 - Scope: add explicit merge lifecycle state/event provenance and route/manifest provenance improvements.
 - Target size: 250-450 LOC, 6-9 files.
 - Why first: low risk, high observability gain, unlocks later recovery and audit improvements.
 
 ### PR 2: Resume Precedence Completion
+
 - Scope: fully apply `git -> event log -> sqlite` precedence, classify ambiguities deterministically, improve resume decision output.
 - Target size: 300-500 LOC, 5-8 files.
 - Why second: highest correctness risk reducer for crash recovery.
 
 ### PR 3: Scheduler Resilience Loop
+
 - Scope: provider health scoring + temporary backoff + token adjustment behavior for repeated provider failures/timeouts.
 - Target size: 300-550 LOC, 6-10 files.
 - Why third: addresses reliability degradation under real load.
 
 ### PR 4: Watchdog and Forensic Logging
+
 - Scope: explicit watchdog escalation path and optional raw forensic log persistence plumbing.
 - Target size: 250-450 LOC, 5-8 files.
 - Why fourth: improves operability without destabilizing orchestration semantics.
 
 ### PR 5: Staleness Re-plan Path
+
 - Scope: when stale invalidates contract assumptions, trigger deterministic re-plan path instead of only narrow repair.
 - Target size: 300-500 LOC, 6-9 files.
 - Why fifth: closes stale-drift correctness loop.
 
 ### PR 6: Hardened Matrix Completion
+
 - Scope: add missing matrix scenarios as integration/e2e tests.
 - Target size: 250-450 LOC, 4-7 files.
 - Why sixth: verification closure after behavior changes land.
