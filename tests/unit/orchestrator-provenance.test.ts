@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { DEFAULT_CONFIG } from "../../src/core/config.js";
 
@@ -83,6 +83,72 @@ describe("orchestrator provenance helpers", () => {
     expect(ctx.providerVersions.gemini).toBe("9.9.9");
   });
 
+
+  it("persists manifest before stage-B preflight can abort", async () => {
+    const orchestrator = new Orchestrator() as any;
+    const writes: string[] = [];
+
+    const persistRunSpy = vi.spyOn(orchestrator, "persistRun").mockImplementation(() => undefined);
+    const progressSpy = vi.spyOn(orchestrator, "progress").mockImplementation(() => undefined);
+    const preflightASpy = vi.spyOn(orchestrator, "preflightStageA").mockImplementation(async (ctx: any) => {
+      ctx.providerVersions.codex = "1.0.0";
+    });
+    const ensureBaselineSpy = vi.spyOn(orchestrator, "ensureBaseline").mockImplementation(async () => undefined);
+    const planSpy = vi.spyOn(orchestrator, "plan").mockResolvedValue({
+      nodes: [
+        {
+          taskId: "task-1",
+          title: "title",
+          provider: "claude",
+          type: "code",
+          dependencies: [],
+          writeScope: { allow: [], deny: [], ownership: "exclusive" },
+          commandPolicy: { allow: [], deny: [], network: "deny" },
+          expected: {},
+          verify: { outputVerificationRequired: false },
+          artifactIO: {},
+          contractHash: "h1"
+        }
+      ],
+      edges: [],
+      dagHash: "dag-hash"
+    });
+    const writeManifestSpy = vi.spyOn(orchestrator, "writeManifest").mockImplementation((ctx: any) => {
+      writes.push(JSON.stringify(ctx.providerVersions));
+    });
+    const preflightBSpy = vi.spyOn(orchestrator, "preflightStageB").mockImplementation(async () => {
+      throw new Error("stage-b failed");
+    });
+    const completeRunSpy = vi.spyOn(orchestrator, "completeRun").mockImplementation((ctx: any, state: string) => ({
+      runId: ctx.run.runId,
+      state,
+      summary: {}
+    }));
+    const resolveRepoSpy = vi.spyOn(orchestrator, "resolveRepo").mockResolvedValue(process.cwd());
+    const gitHeadSpy = vi.spyOn(orchestrator, "gitHead").mockResolvedValue("baseline-sha");
+
+    const outcome = await orchestrator.run({
+      prompt: "test",
+      dryRun: true
+    });
+
+    expect(outcome.state).toBe("ABORTED_POLICY");
+    expect(writes.length).toBe(1);
+    const manifestCallOrder = writeManifestSpy.mock.invocationCallOrder[0];
+    const preflightBCallOrder = preflightBSpy.mock.invocationCallOrder[0];
+    expect(manifestCallOrder).toBeLessThan(preflightBCallOrder);
+
+    persistRunSpy.mockRestore();
+    progressSpy.mockRestore();
+    preflightASpy.mockRestore();
+    ensureBaselineSpy.mockRestore();
+    planSpy.mockRestore();
+    writeManifestSpy.mockRestore();
+    preflightBSpy.mockRestore();
+    completeRunSpy.mockRestore();
+    resolveRepoSpy.mockRestore();
+    gitHeadSpy.mockRestore();
+  });
   it("writes routed plan metadata and manifest with provider versions", async () => {
     const orchestrator = new Orchestrator() as any;
     const runDir = makeTempDir();

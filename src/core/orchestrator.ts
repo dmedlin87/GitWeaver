@@ -141,6 +141,7 @@ export class Orchestrator {
       await this.preflightStageA(ctx, options);
       await this.ensureBaseline(ctx, options);
       const frozenDag = await this.plan(ctx, options);
+      this.writeManifest(ctx, frozenDag);
 
       const providersInDag = [...new Set(frozenDag.nodes.map((node) => node.provider))] as ProviderId[];
       await this.preflightStageB(ctx, providersInDag, options);
