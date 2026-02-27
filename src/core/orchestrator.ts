@@ -25,6 +25,7 @@ import { analyzeCommit, latestCommit } from "../verification/commit-analyzer.js"
 import { evaluateScope } from "../verification/scope-policy.js";
 import { verifyTaskOutput } from "../verification/output-verifier.js";
 import { runGate } from "../verification/post-merge-gate.js";
+import { validateGateCommand } from "../verification/command-policy.js";
 import { detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
 import { buildContextPack } from "../planning/context-pack.js";
 import { buildPromptEnvelope } from "../planning/prompt-envelope.js";
@@ -518,6 +519,14 @@ export class Orchestrator {
         }
 
         const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
+        if (task.verify.gateCommand) {
+          try {
+            validateGateCommand(gateCommand, task.commandPolicy, ctx.config);
+          } catch (error) {
+            throw this.errorWithCode((error as Error).message, REASON_CODES.ABORTED_POLICY);
+          }
+        }
+
         const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000);
         ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
         if (!gate.ok) {
