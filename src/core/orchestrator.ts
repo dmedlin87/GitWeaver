@@ -206,9 +206,15 @@ export class Orchestrator {
         contractHash: node.contractHash
       }));
 
-      for (const task of taskRecords) {
-        db.upsertTask(task);
-      }
+      // ⚡ Bolt: Wrap initial task insertion in a transaction
+      // 💡 What: Grouping multiple task inserts into a single SQLite transaction.
+      // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
+      // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making DAG initialization significantly faster.
+      db.transaction(() => {
+        for (const task of taskRecords) {
+          db.upsertTask(task);
+        }
+      });
 
       const outcome = await this.executeDag(ctx, frozenDag, taskRecords, options);
       return outcome;
@@ -440,16 +446,22 @@ export class Orchestrator {
       if (running.size === 0 && scheduler.pending() === 0) {
         const unresolved = [...stateByTask.values()].filter((taskRecord) => !this.isTerminalTaskState(taskRecord.state));
         if (unresolved.length > 0) {
-          for (const unresolvedTask of unresolved) {
-            unresolvedTask.state = "ESCALATED";
-            unresolvedTask.reasonCode = REASON_CODES.ABORTED_POLICY;
-            ctx.db.upsertTask(unresolvedTask);
-            ctx.events.append(ctx.run.runId, "TASK_ESCALATED", {
-              taskId: unresolvedTask.taskId,
-              reasonCode: unresolvedTask.reasonCode,
-              message: "No schedulable progress available"
-            });
-          }
+          // ⚡ Bolt: Wrap unresolved task escalation in a transaction
+          // 💡 What: Grouping multiple task updates into a single SQLite transaction.
+          // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
+          // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making run finalization significantly faster.
+          ctx.db.transaction(() => {
+            for (const unresolvedTask of unresolved) {
+              unresolvedTask.state = "ESCALATED";
+              unresolvedTask.reasonCode = REASON_CODES.ABORTED_POLICY;
+              ctx.db.upsertTask(unresolvedTask);
+              ctx.events.append(ctx.run.runId, "TASK_ESCALATED", {
+                taskId: unresolvedTask.taskId,
+                reasonCode: unresolvedTask.reasonCode,
+                message: "No schedulable progress available"
+              });
+            }
+          });
         }
         break;
       }
