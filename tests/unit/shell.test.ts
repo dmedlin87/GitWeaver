@@ -108,12 +108,100 @@ describe('shell', () => {
 
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
 
-      // Simulate process exit after kill
-      child.emit('close', null); // Code is null when killed by signal usually, or we can pass a code
+      // Simulate process exit after kill with non-null exit code
+      child.emit('close', 0);
 
       const result = await promise;
       expect(result.code).toBe(124);
       expect(result.stderr).toContain('Command timed out after 1000ms');
+    });
+
+    it('sends SIGKILL if process does not exit after SIGTERM', async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('sleep', ['10'], { timeoutMs: 1000 });
+
+      // Fast-forward time to trigger timeout and SIGTERM
+      vi.advanceTimersByTime(1000);
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+
+      // Fast-forward another 5000ms to trigger SIGKILL
+      vi.advanceTimersByTime(5000);
+      expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+
+      child.emit('close', null);
+      const result = await promise;
+      expect(result.code).toBe(124);
+    });
+
+    it('handles process exit without timeout with null code', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('echo', ['hello']);
+
+      child.stdout.emit('data', 'hello');
+      child.emit('close', null);
+
+      const result = await promise;
+      expect(result).toEqual({
+        code: 1, // falls back to 1
+        stdout: 'hello',
+        stderr: '',
+      });
+    });
+
+    it('ignores errors when sending SIGKILL', async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('sleep', ['10'], { timeoutMs: 1000 });
+
+      vi.advanceTimersByTime(1000);
+
+      // Make kill throw an error when called with SIGKILL
+      child.kill.mockImplementation((signal) => {
+        if (signal === 'SIGKILL') throw new Error('Process already terminated');
+      });
+
+      vi.advanceTimersByTime(5000);
+      expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+
+      child.emit('close', null);
+      const result = await promise;
+      expect(result.code).toBe(124);
+    });
+
+    it('clears timeout if process errors', async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('invalid_command', [], { timeoutMs: 1000 });
+
+      const error = new Error('spawn ENOENT');
+      child.emit('error', error);
+
+      await expect(promise).rejects.toThrow('spawn ENOENT');
+    });
+
+    it('clears forceKill timeout if process errors after timeout', async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('sleep', ['10'], { timeoutMs: 1000 });
+
+      // Fast-forward time to trigger timeout and set forceKill timeout
+      vi.advanceTimersByTime(1000);
+
+      const error = new Error('some error');
+      child.emit('error', error);
+
+      await expect(promise).rejects.toThrow('some error');
     });
 
     it('writes to stdin if provided', async () => {
@@ -165,6 +253,29 @@ describe('shell', () => {
       expect(mockSpawn).toHaveBeenCalledWith(
         'cmd.exe',
         ['/d', '/s', '/c', 'powershell -NoProfile -Command "echo hello"'],
+        expect.any(Object)
+      );
+    });
+
+    it('handles quotes, spaces, and empty strings on Windows correctly', async () => {
+      // Mock process.platform for Windows
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true
+      });
+
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('echo', ['', 'hello world', 'with"quote']);
+      child.emit('close', 0);
+      await promise;
+
+      // verify that empty strings, strings with spaces, and strings with quotes are handled
+      // via quoteWindowsArg
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'cmd.exe',
+        ['/d', '/s', '/c', 'echo "" "hello world" "with\\"quote"'],
         expect.any(Object)
       );
     });
