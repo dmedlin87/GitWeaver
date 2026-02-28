@@ -135,7 +135,7 @@ function plannerPrompt(objective: string): string {
   ].join("\n");
 }
 
-function extractJsonPayload(raw: string): unknown {
+export function extractJsonPayload(raw: string): unknown {
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
   for (const line of lines) {
