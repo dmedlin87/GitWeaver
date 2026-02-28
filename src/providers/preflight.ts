@@ -111,7 +111,7 @@ async function checkAuth(provider: ProviderId): Promise<AuthCheckResult> {
 
   const command = PROVIDER_SPECS[provider].authCheckCommand;
   if (!command || command.length === 0) {
-    return { status: "UNKNOWN", detail: "No auth check command defined" };
+    return { status: "UNKNOWN", detail: "No auth check command defined in provider spec" };
   }
 
   try {
@@ -125,7 +125,7 @@ async function checkAuth(provider: ProviderId): Promise<AuthCheckResult> {
     }
     return { status: "OK" };
   } catch (err) {
-    return { status: "UNKNOWN", detail: (err as Error).message };
+    return { status: "UNKNOWN", detail: `Command execution failed: ${(err as Error).message}` };
   }
 }
 
@@ -147,7 +147,7 @@ async function checkGeminiAuth(): Promise<AuthCheckResult> {
       ? { status: "OK" }
       : { status: "UNKNOWN", detail: `Exit code ${result.code}: ${result.stderr.trim()}` };
   } catch (err) {
-    return { status: "UNKNOWN", detail: (err as Error).message };
+    return { status: "UNKNOWN", detail: `Command execution failed: ${(err as Error).message}` };
   }
 }
 

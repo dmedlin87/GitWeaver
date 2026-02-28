@@ -33,6 +33,13 @@ describe("redactSensitive", () => {
     expect(output).not.toContain("ghp_1234567890abcdef1234567890abcdef1234");
   });
 
+  it("redacts npm_ tokens", () => {
+    const input = "NPM Token: npm_abcdef1234567890abcdef1234567890abcdef is secret";
+    const output = redactSensitive(input);
+    expect(output).toContain("NPM Token: [REDACTED] is secret");
+    expect(output).not.toContain("npm_abcdef1234567890abcdef1234567890abcdef");
+  });
+
   it("redacts generic tokens with keywords", () => {
     const inputs = [
       "api_token = abcdef12345678",
