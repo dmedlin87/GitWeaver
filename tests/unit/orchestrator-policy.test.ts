@@ -269,7 +269,7 @@ describe("Orchestrator Policy Enforcement", () => {
     );
     expect(revertCallIndex).toBeGreaterThan(-1);
     const revertArgs = runCommandSpy.mock.calls[revertCallIndex][1];
-    expect(revertArgs).toEqual(["-C", "/repo", "revert", "--no-commit", "HEAD"]);
+    expect(revertArgs).toEqual(["-C", "/repo", "revert", "--no-commit", "hash123"]);
 
     const subsequentCommitCall = runCommandSpy.mock.calls
       .slice(revertCallIndex + 1)
