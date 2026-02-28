@@ -729,8 +729,31 @@ export class Orchestrator {
           const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
           ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
         } catch (verificationError) {
-          await runCommand("git", ["-C", ctx.run.repoPath, "revert", "--no-commit", commitHash], { timeoutMs: 15_000 });
-          await runCommand("git", ["-C", ctx.run.repoPath, "commit", "-m", `Revert "${commitHash}" due to verification failure`], { timeoutMs: 15_000 });
+          const revertResult = await runCommand("git", ["-C", ctx.run.repoPath, "revert", "--no-commit", "HEAD"], { timeoutMs: 15_000 });
+          if (revertResult.code !== 0) {
+            try {
+              await runCommand("git", ["-C", ctx.run.repoPath, "revert", "--abort"], { timeoutMs: 15_000 });
+            } catch {
+              // Ignore abort failures; surface the original revert failure below.
+            }
+            throw new Error(
+              `Failed to roll back commit after verification failure: ${revertResult.stderr || revertResult.stdout || `exit code ${revertResult.code}`}`
+            );
+          }
+
+          const rollbackMessage = [
+            `Revert integration due to verification failure`,
+            "",
+            `ORCH_RUN_ID: ${ctx.run.runId}`,
+            `ORCH_TASK_ID: ${task.taskId}`
+          ].join("\n");
+          const commitResult = await runCommand("git", ["-C", ctx.run.repoPath, "commit", "-m", rollbackMessage], { timeoutMs: 15_000 });
+          if (commitResult.code !== 0) {
+            throw new Error(
+              `Failed to finalize rollback commit for ${task.taskId} after verification failure: ${commitResult.stderr || commitResult.stdout || `exit code ${commitResult.code}`}`
+            );
+          }
+
           ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_ROLLBACK", {
             taskId: task.taskId,
             commitHash,

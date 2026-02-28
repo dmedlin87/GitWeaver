@@ -12,10 +12,10 @@ Detect and fix drift between implementation and v2 architecture PRD (`docs/cli_d
 | 3. Scope checks are canonical-path fail-closed | **Enforced** | `evaluateScope` uses canonical paths and strict allow/deny logic. |
 | 4. Exit code is never sufficient for success | **Enforced** | Checks commit existence, scope, output verification, and post-merge gate. |
 | 5. Post-merge gate is mandatory after every integration | **Enforced** | `runGate` called in merge queue after integration. |
-| 6. Repair attempts are bounded and scope-narrowed | **Enforced** | Scope narrowing isolates repair changes effectively. |
-| 7. Git history + event log are system of record | **Enforced** | `reconcileResume` logic prioritizes git/events over sqlite. |
-| 8. Lock lease timeout fencing | **Enforced** | Fencing token validation in merge queue. |
-| 9. On failure, rollback integration branch | **Gap Found & Fixed** | Missing rollback on gate/verification failure. Fix applied. |
+| 6. On failure, rollback integration branch | **Gap Found & Fixed** | Missing rollback on gate/verification failure. Fix applied. |
+| 7. Repair attempts are bounded and scope-narrowed | **Enforced** | Scope narrowing isolates repair changes effectively. |
+| 8. Git history + event log are system of record | **Enforced** | `reconcileResume` logic prioritizes git/events over sqlite. |
+| 9. Lock lease timeout fencing | **Enforced** | Fencing token validation in merge queue. |
 
 ## Gaps Found
 
