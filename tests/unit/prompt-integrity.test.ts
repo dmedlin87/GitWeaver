@@ -100,6 +100,72 @@ describe('Prompt Integrity & Determinism', () => {
     });
   });
 
+  describe('Prompt Envelope Hashing', () => {
+    it('should produce identical immutableSectionsHash for differently ordered keys', async () => {
+      const { buildPromptEnvelope } = await import('../../src/planning/prompt-envelope.js');
+      const task = {
+        taskId: 't1',
+        provider: 'mock',
+        contractHash: 'chash',
+      } as unknown as TaskContract;
+
+      const env1 = buildPromptEnvelope({
+        runId: 'r1',
+        task,
+        attempt: 1,
+        baselineCommit: 'c1',
+        contextPackHash: 'cph1',
+        immutableSections: { a: 1, b: 2, c: { d: 3, e: 4 } }
+      });
+
+      const env2 = buildPromptEnvelope({
+        runId: 'r1',
+        task,
+        attempt: 1,
+        baselineCommit: 'c1',
+        contextPackHash: 'cph1',
+        immutableSections: { c: { e: 4, d: 3 }, b: 2, a: 1 } // Reordered keys
+      });
+
+      expect(env1.immutableSectionsHash).toBe(env2.immutableSectionsHash);
+    });
+
+    it('should not change immutable hash when mutable fields change', async () => {
+      const { buildPromptEnvelope } = await import('../../src/planning/prompt-envelope.js');
+      const task = {
+        taskId: 't1',
+        provider: 'mock',
+        contractHash: 'chash',
+      } as unknown as TaskContract;
+
+      const env1 = buildPromptEnvelope({
+        runId: 'r1',
+        task,
+        attempt: 1,
+        baselineCommit: 'c1',
+        contextPackHash: 'cph1',
+        immutableSections: { a: 1 }
+      });
+
+      const env2 = buildPromptEnvelope({
+        runId: 'r1',
+        task,
+        attempt: 1,
+        baselineCommit: 'c1',
+        contextPackHash: 'cph1',
+        immutableSections: { a: 1 },
+        failureEvidence: ['error1'],
+        boundedHints: ['hint1']
+      });
+
+      expect(env1.immutableSectionsHash).toBe(env2.immutableSectionsHash);
+      expect(env1.contextPackHash).toBe(env2.contextPackHash);
+      expect(env1.taskContractHash).toBe(env2.taskContractHash);
+      // Mutable sections differ
+      expect(env1.mutableSections).not.toEqual(env2.mutableSections);
+    });
+  });
+
   describe('Prompt Drift Assertion', () => {
     it('should throw on immutable section drift', () => {
       const env1 = {
