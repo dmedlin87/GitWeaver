@@ -1,5 +1,24 @@
 import type { ProviderHealthSnapshot, ProviderId } from "../core/types.js";
 
+export type ProviderErrorClass = "rate_limit" | "timeout" | "other";
+
+const ERROR_CLASS_CONFIG: Record<ProviderErrorClass, { scorePenalty: number; backoffMultiplier: number }> = {
+  rate_limit: { scorePenalty: 30, backoffMultiplier: 3.0 },
+  timeout:    { scorePenalty: 25, backoffMultiplier: 1.5 },
+  other:      { scorePenalty: 20, backoffMultiplier: 1.0 }
+};
+
+export function classifyProviderError(errorText: string): ProviderErrorClass {
+  const lower = errorText.toLowerCase();
+  if (lower.includes("429") || lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("quota exceeded")) {
+    return "rate_limit";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("deadline exceeded")) {
+    return "timeout";
+  }
+  return "other";
+}
+
 export interface ProviderHealthManagerOptions {
   buckets: Record<ProviderId, number>;
   baseBackoffSec: number;
@@ -65,10 +84,14 @@ export class ProviderHealthManager {
   public onFailure(provider: ProviderId, errorText: string): ProviderHealthSnapshot {
     const current = this.state[provider];
     const consecutiveFailures = (current.consecutiveFailures ?? 0) + 1;
-    const backoffSec = Math.min(this.maxBackoffSec, this.baseBackoffSec * 2 ** Math.max(0, consecutiveFailures - 1));
+    const { scorePenalty, backoffMultiplier } = ERROR_CLASS_CONFIG[classifyProviderError(errorText)];
+    const backoffSec = Math.min(
+      this.maxBackoffSec,
+      this.baseBackoffSec * backoffMultiplier * 2 ** Math.max(0, consecutiveFailures - 1)
+    );
     const next: ProviderHealthSnapshot = {
       ...current,
-      score: Math.max(0, current.score - 20),
+      score: Math.max(0, current.score - scorePenalty),
       lastErrors: [...current.lastErrors, truncate(errorText)].slice(-5),
       cooldownUntil: new Date(Date.now() + backoffSec * 1000).toISOString(),
       consecutiveFailures,

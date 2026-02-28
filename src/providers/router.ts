@@ -33,6 +33,16 @@ function providerHealthy(health: ProviderHealthSnapshot | undefined): boolean {
   return Date.now() >= cooldownUntilMs;
 }
 
+export function rerouteOnDegradation(
+  task: { type: TaskType; provider: ProviderId },
+  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>
+): RoutingDecision | null {
+  if (providerHealthy(healthByProvider[task.provider])) {
+    return null;
+  }
+  return routeTask(task.type, healthByProvider);
+}
+
 export function routeTask(
   type: TaskType,
   healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>

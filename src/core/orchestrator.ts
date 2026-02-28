@@ -13,7 +13,7 @@ import { runPreflight, type PreflightOptions } from "../providers/preflight.js";
 import { generateDagWithCodex } from "../planning/planner-codex.js";
 import { auditPlan } from "../planning/plan-audit.js";
 import { freezePlan } from "../planning/plan-freeze.js";
-import { routeTask } from "../providers/router.js";
+import { rerouteOnDegradation, routeTask } from "../providers/router.js";
 import { Scheduler } from "../scheduler/scheduler.js";
 import { LockManager } from "../scheduler/lock-manager.js";
 import { LeaseHeartbeat } from "../scheduler/lease-heartbeat.js";
@@ -370,7 +370,16 @@ export class Orchestrator {
       }
 
       while (running.size < (options.concurrency ?? ctx.config.concurrencyCap)) {
-        const task = scheduler.tryDispatch((candidate) => ctx.providerHealth.canDispatch(candidate.provider));
+        const task = scheduler.tryDispatch(
+          (candidate) => ctx.providerHealth.canDispatch(candidate.provider),
+          (candidate) => {
+            const decision = rerouteOnDegradation(candidate, ctx.providerHealth.snapshotAll());
+            if (!decision || decision.provider === candidate.provider) {
+              return null;
+            }
+            return { ...candidate, provider: decision.provider };
+          }
+        );
         if (!task) {
           break;
         }
@@ -378,6 +387,14 @@ export class Orchestrator {
         const record = stateByTask.get(task.taskId);
         if (!record) {
           continue;
+        }
+        if (task.reroutedFrom) {
+          ctx.events.append(ctx.run.runId, "TASK_REROUTED", {
+            taskId: task.taskId,
+            fromProvider: task.reroutedFrom,
+            toProvider: task.provider
+          });
+          this.metrics.inc("scheduler.task_rerouted");
         }
         ctx.events.append(ctx.run.runId, "TASK_DISPATCHED", {
           taskId: task.taskId,

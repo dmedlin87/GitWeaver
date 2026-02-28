@@ -1,9 +1,10 @@
 import { PriorityQueue } from "./priority-queue.js";
 import { ProviderTokenBuckets } from "./token-buckets.js";
-import type { TaskContract } from "../core/types.js";
+import type { ProviderId, TaskContract } from "../core/types.js";
 
 export interface ScheduledTask extends TaskContract {
   priority?: number;
+  reroutedFrom?: ProviderId;
 }
 
 export class Scheduler {
@@ -21,7 +22,10 @@ export class Scheduler {
     this.queue.enqueue(task.taskId, task, priority);
   }
 
-  public tryDispatch(canDispatch?: (task: ScheduledTask) => boolean): ScheduledTask | null {
+  public tryDispatch(
+    canDispatch?: (task: ScheduledTask) => boolean,
+    reroute?: (task: ScheduledTask) => ScheduledTask | null
+  ): ScheduledTask | null {
     const snapshot = this.queue.size();
     for (let attempt = 0; attempt < snapshot; attempt += 1) {
       const candidate = this.queue.dequeue();
@@ -29,13 +33,20 @@ export class Scheduler {
         return null;
       }
 
-      if (canDispatch && !canDispatch(candidate)) {
+      if (!canDispatch || canDispatch(candidate)) {
+        if (this.buckets.tryAcquire(candidate.provider)) {
+          return candidate;
+        }
         this.queue.enqueue(candidate.taskId, candidate, candidate.priority ?? 0);
         continue;
       }
 
-      if (this.buckets.tryAcquire(candidate.provider)) {
-        return candidate;
+      // Provider degraded — attempt dynamic rerouting to a fallback
+      if (reroute) {
+        const rerouted = reroute(candidate);
+        if (rerouted && rerouted.provider !== candidate.provider && this.buckets.tryAcquire(rerouted.provider)) {
+          return { ...rerouted, reroutedFrom: candidate.provider };
+        }
       }
 
       this.queue.enqueue(candidate.taskId, candidate, candidate.priority ?? 0);
