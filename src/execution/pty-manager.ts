@@ -18,6 +18,17 @@ export interface PtyRunResult {
 
 type NodePtyModule = typeof import("node-pty");
 
+const DENYLIST = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GOOGLE_API_KEY",
+  "GEMINI_API_KEY",
+  "AWS_SECRET_ACCESS_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "NPM_TOKEN"
+];
+
 export class PtyManager {
   private ptyModulePromise: Promise<NodePtyModule | null> | null = null;
 
@@ -44,7 +55,12 @@ export class PtyManager {
         ? ["-NoProfile", "-Command", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`]
         : ["-lc", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`];
 
-      const env = options.env ? { ...options.env } : { ...process.env };
+      const baseEnv = { ...process.env };
+      for (const key of DENYLIST) {
+        delete baseEnv[key];
+      }
+
+      const env = options.env ? { ...baseEnv, ...options.env } : baseEnv;
       if (!env.TERM && process.env.TERM) {
         env.TERM = process.env.TERM;
       }
