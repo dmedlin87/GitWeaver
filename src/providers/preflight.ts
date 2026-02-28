@@ -20,11 +20,7 @@ export interface PreflightSummary {
 }
 
 export async function checkProviders(targetProviders: ProviderId[]): Promise<ProviderStatus[]> {
-  const statuses: ProviderStatus[] = [];
-  for (const provider of targetProviders) {
-    statuses.push(await checkSingleProvider(provider));
-  }
-  return statuses;
+  return Promise.all(targetProviders.map(async (provider) => checkSingleProvider(provider)));
 }
 
 async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus> {

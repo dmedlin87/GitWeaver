@@ -7,6 +7,7 @@ import { runShellLine } from "../../core/shell.js";
 
 interface ProvidersCheckOptions {
   json?: boolean;
+  providers?: string;
 }
 
 interface ProvidersInstallOptions {
@@ -26,9 +27,11 @@ export function registerProvidersCommand(program: Command): void {
 
   providers
     .command("check")
+    .option("--providers <csv>", "comma-separated provider list")
     .option("--json", "print JSON output")
     .action(async (opts: ProvidersCheckOptions) => {
-      const statuses = await checkProviders(providerList());
+      const target = parseProviders(opts.providers);
+      const statuses = await checkProviders(target);
       if (opts.json) {
         printJson({ statuses });
         return;

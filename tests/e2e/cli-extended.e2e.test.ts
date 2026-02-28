@@ -151,7 +151,7 @@ describe("cli e2e – status/inspect/locks commands", () => {
 
 describe("cli e2e – providers command", () => {
   it("providers check --json outputs JSON with statuses array", { timeout: 60_000 }, () => {
-    const result = runCli(["providers", "check", "--json"], process.cwd(), 55_000);
+    const result = runCli(["providers", "check", "--providers", "codex", "--json"], process.cwd(), 55_000);
     expect(result.status).toBe(0);
     const parsed = parseJsonStdout(result.stdout) as { statuses?: unknown };
     expect(Array.isArray(parsed.statuses)).toBe(true);
@@ -159,7 +159,7 @@ describe("cli e2e – providers command", () => {
   });
 
   it("providers check (non-JSON) outputs text status lines", { timeout: 60_000 }, () => {
-    const result = runCli(["providers", "check"], process.cwd(), 55_000);
+    const result = runCli(["providers", "check", "--providers", "codex"], process.cwd(), 55_000);
     expect(result.stdout.length + result.stderr.length).toBeGreaterThan(0);
   });
 });

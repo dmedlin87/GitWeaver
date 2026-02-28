@@ -149,39 +149,30 @@ async function mergedTasksFromGit(repoPath: string, runId: string): Promise<stri
 }
 
 async function detectExternalDriftCommits(repoPath: string, baselineCommit: string, runId: string): Promise<string[]> {
-  const hashResult = await runCommand(
+  const logResult = await runCommand(
     "git",
     [
       "-C",
       repoPath,
-      "rev-list",
+      "log",
+      "--pretty=format:%H%x00%B%x00",
       `${baselineCommit}..HEAD`
     ],
     { timeoutMs: 30_000 }
   );
 
-  if (hashResult.code !== 0) {
+  if (logResult.code !== 0) {
     return [];
   }
 
   const driftCommits: string[] = [];
-  const hashes = hashResult.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  for (const hash of hashes) {
-    const bodyResult = await runCommand(
-      "git",
-      ["-C", repoPath, "cat-file", "-p", hash],
-      { timeoutMs: 10_000 }
-    );
-
-    if (bodyResult.code !== 0) {
+  const chunks = logResult.stdout.split("\u0000");
+  for (let index = 0; index + 1 < chunks.length; index += 2) {
+    const hash = chunks[index]?.trim();
+    const body = chunks[index + 1] ?? "";
+    if (!hash) {
       continue;
     }
-
-    const body = bodyResult.stdout.split(/\r?\n\r?\n/).slice(1).join("\n\n");
     if (!body.includes(`ORCH_RUN_ID=${runId}`)) {
       driftCommits.push(hash);
     }

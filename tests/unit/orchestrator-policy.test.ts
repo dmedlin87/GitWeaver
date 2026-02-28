@@ -71,6 +71,11 @@ vi.mock("../../src/verification/staleness.js", () => ({
   artifactKey: () => "key"
 }));
 
+vi.mock("../../src/execution/sandbox-env.js", () => ({
+  createSandboxHome: async () => "/tmp/sandbox-home",
+  buildSandboxEnv: (env: NodeJS.ProcessEnv) => env
+}));
+
 vi.mock("../../src/core/shell.js", () => ({
   runCommand: async () => ({ code: 0, stdout: "commit message", stderr: "" })
 }));
