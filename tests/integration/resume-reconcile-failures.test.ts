@@ -412,4 +412,86 @@ describe("resume reconciliation failure modes", () => {
     expect(decision.escalatedTaskIds).not.toContain("task-git-wins");
     expect(decision.reasons["task-git-wins"]).toBe("RESUME_DB_LAG");
   });
+
+  it("escalates when event log is ESCALATED and no git proof", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+
+    const run: RunRecord = {
+      runId: "run-esc-event",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      { runId: run.runId, taskId: "task-1", provider: "claude", type: "code", state: "PENDING", attempts: 0, contractHash: "h" }
+    ];
+
+    const events: EventRecord[] = [
+      { seq: 1, runId: run.runId, ts: new Date().toISOString(), type: "TASK_ESCALATED", payload: { taskId: "task-1" }, payloadHash: "hash" }
+    ];
+
+    const decision = await reconcileResume({ run, tasksFromDb, events });
+    expect(decision.escalatedTaskIds).toContain("task-1");
+    expect(decision.reasons["task-1"]).toBe("RESUME_ESCALATED_EVENT_LOG");
+  });
+
+  it("escalates when dbTask is ESCALATED and no git proof", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+
+    const run: RunRecord = {
+      runId: "run-esc-db",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      { runId: run.runId, taskId: "task-2", provider: "claude", type: "code", state: "ESCALATED", attempts: 1, contractHash: "h" }
+    ];
+
+    const decision = await reconcileResume({ run, tasksFromDb, events: [] });
+    expect(decision.escalatedTaskIds).toContain("task-2");
+    expect(decision.reasons["task-2"]).toBe("RESUME_ESCALATED_DB");
+  });
+
+  it("requeues with crash recovery reason when dbTask or eventState is RUNNING with no git proof", async () => {
+    const repo = makeTempDir();
+    runGit(repo, ["init"]);
+    runGit(repo, ["config", "user.email", "ci@example.com"]);
+    runGit(repo, ["config", "user.name", "CI"]);
+
+    const run: RunRecord = {
+      runId: "run-crash-rec",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      { runId: run.runId, taskId: "task-3", provider: "claude", type: "code", state: "RUNNING", attempts: 1, contractHash: "h" }
+    ];
+
+    const decision = await reconcileResume({ run, tasksFromDb, events: [] });
+    expect(decision.requeueTaskIds).toContain("task-3");
+    expect(decision.reasons["task-3"]).toBe("RESUME_CRASH_RECOVERY");
+  });
 });

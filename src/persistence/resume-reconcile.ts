@@ -91,7 +91,7 @@ function resolveResumeEvidence(
 
   // Event log precedence over SQLite when git has no merged proof.
   if (isEscalated(eventState?.state)) {
-    return { action: "escalate" };
+    return { action: "escalate", reasonCode: REASON_CODES.RESUME_ESCALATED_EVENT_LOG };
   }
 
   if (isMergedLike(eventState?.state)) {
@@ -99,7 +99,7 @@ function resolveResumeEvidence(
   }
 
   if (isEscalated(dbTask?.state)) {
-    return { action: "escalate" };
+    return { action: "escalate", reasonCode: REASON_CODES.RESUME_ESCALATED_DB };
   }
 
   if (isMergedLike(dbTask?.state)) {
@@ -111,7 +111,7 @@ function resolveResumeEvidence(
   }
 
   if (dbTask || eventState) {
-    return { action: "requeue" };
+    return { action: "requeue", reasonCode: REASON_CODES.RESUME_CRASH_RECOVERY };
   }
 
   return { action: "ignore" };
