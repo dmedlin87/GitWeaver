@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rimraf dist .orchestrator",
     "dev": "tsx src/cli/main.ts",
+    "doctor:install": "node scripts/fix-local-install.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
