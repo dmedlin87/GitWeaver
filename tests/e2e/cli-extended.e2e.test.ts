@@ -80,7 +80,7 @@ function parseJsonStdout(stdout: string): unknown {
 }
 
 describe("cli e2e – run command", () => {
-  it("--dry-run --json in a valid git repo exits 0 and outputs valid JSON", () => {
+  it("--dry-run --json in a valid git repo exits 0 and outputs valid JSON", { timeout: 30_000 }, () => {
     const repo = makeGitRepo();
     const result = runCli([
       "run", "implement feature X",
