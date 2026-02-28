@@ -264,8 +264,16 @@ describe("Orchestrator Policy Enforcement", () => {
       reasonCode: REASON_CODES.MERGE_GATE_FAILED
     });
 
-    const revertCalls = runCommandSpy.mock.calls.filter(call => call[1] && call[1].includes("revert"));
-    expect(revertCalls.length).toBeGreaterThan(0);
-    expect(revertCalls[0][1]).toEqual(["-C", "/repo", "revert", "--no-commit", "hash123"]);
+    const revertCallIndex = runCommandSpy.mock.calls.findIndex(
+      call => call[1] && call[1].includes("revert")
+    );
+    expect(revertCallIndex).toBeGreaterThan(-1);
+    const revertArgs = runCommandSpy.mock.calls[revertCallIndex][1];
+    expect(revertArgs).toEqual(["-C", "/repo", "revert", "--no-commit", "hash123"]);
+
+    const subsequentCommitCall = runCommandSpy.mock.calls
+      .slice(revertCallIndex + 1)
+      .find(call => call[1] && call[1].includes("commit"));
+    expect(subsequentCommitCall).toBeDefined();
   });
 });
