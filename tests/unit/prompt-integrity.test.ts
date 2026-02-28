@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { buildContextPack } from '../../src/planning/context-pack';
 import { freezePlan } from '../../src/planning/plan-freeze';
-import { assertPromptDrift } from '../../src/planning/prompt-envelope';
+import { assertPromptDrift, buildPromptEnvelope } from '../../src/planning/prompt-envelope';
 import { TaskContract, DagSpec, PromptEnvelope } from '../../src/core/types';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -102,7 +102,6 @@ describe('Prompt Integrity & Determinism', () => {
 
   describe('Prompt Envelope Hashing', () => {
     it('should produce identical immutableSectionsHash for differently ordered keys', async () => {
-      const { buildPromptEnvelope } = await import('../../src/planning/prompt-envelope.js');
       const task = {
         taskId: 't1',
         provider: 'mock',
@@ -131,7 +130,6 @@ describe('Prompt Integrity & Determinism', () => {
     });
 
     it('should not change immutable hash when mutable fields change', async () => {
-      const { buildPromptEnvelope } = await import('../../src/planning/prompt-envelope.js');
       const task = {
         taskId: 't1',
         provider: 'mock',
