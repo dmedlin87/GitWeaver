@@ -16,8 +16,9 @@ export class LockManager {
 
   public tryAcquireWrite(resourceKeys: string[], ownerTaskId: string): LockLease[] | null {
     const now = Date.now();
+    const orderedKeys = [...resourceKeys].sort((a, b) => a.localeCompare(b));
 
-    for (const key of resourceKeys) {
+    for (const key of orderedKeys) {
       const existing = this.leasesByKey.get(key);
       if (existing) {
         // If lease is expired, we can steal it
@@ -29,7 +30,7 @@ export class LockManager {
     }
 
     const leases: LockLease[] = [];
-    for (const key of resourceKeys) {
+    for (const key of orderedKeys) {
       const nextToken = (this.counterByKey.get(key) ?? 0) + 1;
       this.counterByKey.set(key, nextToken);
       const acquiredAt = new Date(now).toISOString();

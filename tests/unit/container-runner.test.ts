@@ -122,4 +122,37 @@ describe("runInContainer", () => {
     expect(result.stdout).toBe("OUT");
     expect(result.stderr).toBe("ERR");
   });
+
+  it("passes container isolation flags when configured", async () => {
+    await runInContainer({
+      ...BASE_OPTIONS,
+      memoryMb: 1024,
+      cpuLimit: 1.5,
+      user: "1000:1000",
+      dropCapabilities: true,
+      readOnlyRootfs: true
+    });
+
+    const [, args] = runCommandMock.mock.calls[0]!;
+    expect(args).toContain("--memory");
+    expect(args).toContain("1024m");
+    expect(args).toContain("--cpus");
+    expect(args).toContain("1.5");
+    expect(args).toContain("--user");
+    expect(args).toContain("1000:1000");
+    expect(args).toContain("--cap-drop");
+    expect(args).toContain("ALL");
+    expect(args).toContain("--read-only");
+  });
+
+  it("omits container isolation flags when not configured", async () => {
+    await runInContainer(BASE_OPTIONS);
+
+    const [, args] = runCommandMock.mock.calls[0]!;
+    expect(args).not.toContain("--memory");
+    expect(args).not.toContain("--cpus");
+    expect(args).not.toContain("--user");
+    expect(args).not.toContain("--cap-drop");
+    expect(args).not.toContain("--read-only");
+  });
 });

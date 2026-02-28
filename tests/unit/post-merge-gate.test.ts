@@ -178,5 +178,38 @@ describe("runGate", () => {
         exitCode: 2
       });
     });
+
+    it("passes container hardening flags when provided", async () => {
+      vi.mocked(runInContainer).mockResolvedValue({
+        code: 0,
+        stdout: "ok",
+        stderr: ""
+      });
+
+      await runGate("echo secure", "/workspace", 1000, {
+        executionMode: "container",
+        containerMemoryMb: 512,
+        containerCpuLimit: 1,
+        containerRunAsUser: "1000:1000",
+        containerDropCapabilities: true,
+        containerReadOnlyRootfs: true
+      });
+
+      expect(runInContainer).toHaveBeenCalledWith({
+        runtime: "docker",
+        image: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        workspacePath: "/workspace",
+        env: undefined,
+        command: "sh",
+        args: ["-lc", "echo secure"],
+        timeoutMs: 1000,
+        network: "allow",
+        memoryMb: 512,
+        cpuLimit: 1,
+        user: "1000:1000",
+        dropCapabilities: true,
+        readOnlyRootfs: true
+      });
+    });
   });
 });

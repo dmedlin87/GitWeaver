@@ -3,6 +3,7 @@ import { Orchestrator } from "../../src/core/orchestrator.js";
 import { REASON_CODES } from "../../src/core/reason-codes.js";
 import * as postMergeGate from "../../src/verification/post-merge-gate.js";
 import * as shell from "../../src/core/shell.js";
+import * as staleness from "../../src/verification/staleness.js";
 
 // Mock dependencies
 import { LockManager } from "../../src/scheduler/lock-manager.js";
@@ -66,8 +67,8 @@ vi.mock("../../src/verification/output-verifier.js", () => ({
 }));
 
 vi.mock("../../src/verification/staleness.js", () => ({
-  collectArtifactSignatures: () => ({}),
-  detectStaleness: async () => ({ stale: false, reasons: [] }),
+  collectArtifactSignatures: vi.fn(() => ({})),
+  detectStaleness: vi.fn(async () => ({ stale: false, reasons: [] })),
   artifactKey: () => "key"
 }));
 
@@ -110,6 +111,8 @@ describe("Orchestrator Policy Enforcement", () => {
         forensicRawLogs: false,
         leaseDurationSec: 60,
         leaseRenewSec: 30,
+        lockContentionRetryMax: 1,
+        lockContentionBackoffMs: 1,
         heartbeatTimeoutSec: 60,
         maxRepairAttemptsPerClass: 0
       },
@@ -280,5 +283,53 @@ describe("Orchestrator Policy Enforcement", () => {
       .slice(revertCallIndex + 1)
       .find(call => call[1] && call[1].includes("commit"));
     expect(subsequentCommitCall).toBeDefined();
+  });
+
+  it("requeues stale task through replanning path instead of creating repair task", async () => {
+    vi.mocked(staleness.detectStaleness).mockResolvedValueOnce({
+      stale: true,
+      reasons: ["base commit drift detected"]
+    });
+
+    const task = {
+      taskId: "task-stale",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny"
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+    const taskById = new Map<string, unknown>();
+
+    await orchestrator.executeTask(
+      ctx,
+      task,
+      record,
+      new LockManager(1000),
+      new LeaseHeartbeat(new LockManager(1000), 1000),
+      new MergeQueue(),
+      new WorktreeManager(),
+      { increment: () => 1, allowed: () => true },
+      new Map(),
+      taskById,
+      new Map()
+    );
+
+    expect(record.state).toBe("PENDING");
+    expect(record.reasonCode).toBe(REASON_CODES.STALE_REPLAN_TRIGGERED);
+    expect(taskById.size).toBe(0);
   });
 });

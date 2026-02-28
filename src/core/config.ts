@@ -12,11 +12,18 @@ export interface RuntimeConfig {
   executionMode: "host" | "container";
   containerRuntime: "docker" | "podman";
   containerImage: string;
+  containerMemoryMb: number;
+  containerCpuLimit: number;
+  containerRunAsUser: string;
+  containerDropCapabilities: boolean;
+  containerReadOnlyRootfs: boolean;
   providerBackoffBaseSec: number;
   providerBackoffMaxSec: number;
   providerHealthRecoverPerSuccess: number;
   leaseDurationSec: number;
   leaseRenewSec: number;
+  lockContentionRetryMax: number;
+  lockContentionBackoffMs: number;
   heartbeatTimeoutSec: number;
   terminateGraceSec: number;
   maxRepairAttemptsPerClass: number;
@@ -42,11 +49,18 @@ export const DEFAULT_CONFIG: RuntimeConfig = {
   executionMode: "host",
   containerRuntime: "docker",
   containerImage: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+  containerMemoryMb: 2048,
+  containerCpuLimit: 2,
+  containerRunAsUser: "65532:65532",
+  containerDropCapabilities: true,
+  containerReadOnlyRootfs: false,
   providerBackoffBaseSec: 5,
   providerBackoffMaxSec: 60,
   providerHealthRecoverPerSuccess: 10,
   leaseDurationSec: 120,
   leaseRenewSec: 30,
+  lockContentionRetryMax: 4,
+  lockContentionBackoffMs: 75,
   heartbeatTimeoutSec: 60,
   terminateGraceSec: 10,
   maxRepairAttemptsPerClass: 2,

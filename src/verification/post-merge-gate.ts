@@ -14,6 +14,11 @@ export interface GateExecutionOptions {
   executionMode?: "host" | "container";
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
+  containerMemoryMb?: number;
+  containerCpuLimit?: number;
+  containerRunAsUser?: string;
+  containerDropCapabilities?: boolean;
+  containerReadOnlyRootfs?: boolean;
   networkPolicy?: "allow" | "deny";
 }
 
@@ -32,7 +37,12 @@ export async function runGate(
         command: "sh",
         args: ["-lc", command],
         timeoutMs,
-        network: options.networkPolicy ?? "allow"
+        network: options.networkPolicy ?? "allow",
+        ...(options.containerMemoryMb !== undefined ? { memoryMb: options.containerMemoryMb } : {}),
+        ...(options.containerCpuLimit !== undefined ? { cpuLimit: options.containerCpuLimit } : {}),
+        ...(options.containerRunAsUser !== undefined ? { user: options.containerRunAsUser } : {}),
+        ...(options.containerDropCapabilities !== undefined ? { dropCapabilities: options.containerDropCapabilities } : {}),
+        ...(options.containerReadOnlyRootfs !== undefined ? { readOnlyRootfs: options.containerReadOnlyRootfs } : {})
       })
     : await runShellLine(command, {
         cwd,

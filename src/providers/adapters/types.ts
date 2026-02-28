@@ -9,6 +9,11 @@ export interface ProviderExecutionRequest {
   executionMode?: "host" | "container";
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
+  containerMemoryMb?: number;
+  containerCpuLimit?: number;
+  containerRunAsUser?: string;
+  containerDropCapabilities?: boolean;
+  containerReadOnlyRootfs?: boolean;
   networkPolicy?: "allow" | "deny";
 }
 

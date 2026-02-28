@@ -37,3 +37,64 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  execution-mode-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        execution_mode: [host, container]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate execution mode path
+        env:
+          GW_EXECUTION_MODE: ${{ matrix.execution_mode }}
+        run: |
+          if [ "${GW_EXECUTION_MODE}" = "host" ]; then
+            pnpm test -- tests/unit/post-merge-gate.test.ts tests/unit/codex-adapter.test.ts tests/unit/claude-adapter.test.ts tests/unit/gemini-adapter-container.test.ts
+          else
+            pnpm test -- tests/unit/container-runner.test.ts tests/unit/post-merge-gate.test.ts tests/unit/codex-adapter.test.ts tests/unit/claude-adapter.test.ts tests/unit/gemini-adapter-container.test.ts
+          fi
+
+  dry-run-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Dry-run smoke e2e
+        run: pnpm test -- tests/e2e/cli-extended.e2e.test.ts -t "--dry-run --json in a valid git repo exits 0 and outputs valid JSON"

@@ -17,7 +17,12 @@ export class GeminiAdapter implements ProviderAdapter {
           args,
           timeoutMs: request.timeoutMs,
           stdin: request.prompt,
-          network: request.networkPolicy ?? "allow"
+          network: request.networkPolicy ?? "allow",
+          ...(request.containerMemoryMb !== undefined ? { memoryMb: request.containerMemoryMb } : {}),
+          ...(request.containerCpuLimit !== undefined ? { cpuLimit: request.containerCpuLimit } : {}),
+          ...(request.containerRunAsUser !== undefined ? { user: request.containerRunAsUser } : {}),
+          ...(request.containerDropCapabilities !== undefined ? { dropCapabilities: request.containerDropCapabilities } : {}),
+          ...(request.containerReadOnlyRootfs !== undefined ? { readOnlyRootfs: request.containerReadOnlyRootfs } : {})
         })
       : await runCommand("gemini", args, {
           cwd: request.cwd,

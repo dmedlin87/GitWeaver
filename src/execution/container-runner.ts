@@ -10,6 +10,11 @@ export interface ContainerRunOptions {
   timeoutMs: number;
   stdin?: string;
   network: "allow" | "deny";
+  memoryMb?: number;
+  cpuLimit?: number;
+  user?: string;
+  dropCapabilities?: boolean;
+  readOnlyRootfs?: boolean;
 }
 
 export async function runInContainer(options: ContainerRunOptions): Promise<CommandResult> {
@@ -24,6 +29,11 @@ export async function runInContainer(options: ContainerRunOptions): Promise<Comm
     "run",
     "--rm",
     "-i",
+    ...(options.memoryMb && options.memoryMb > 0 ? ["--memory", `${options.memoryMb}m`] : []),
+    ...(options.cpuLimit && options.cpuLimit > 0 ? ["--cpus", String(options.cpuLimit)] : []),
+    ...(options.user ? ["--user", options.user] : []),
+    ...(options.dropCapabilities ? ["--cap-drop", "ALL"] : []),
+    ...(options.readOnlyRootfs ? ["--read-only"] : []),
     "-w",
     "/workspace",
     "-v",

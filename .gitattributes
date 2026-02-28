@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+# Common Windows scripts keep CRLF for compatibility.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files should never be line-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary

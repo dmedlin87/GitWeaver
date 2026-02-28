@@ -14,17 +14,18 @@ describe("assertRunTransition", () => {
     expect(() => assertRunTransition("BASELINE_OK", "PLAN_FROZEN")).not.toThrow();
     expect(() => assertRunTransition("PLAN_FROZEN", "DISPATCHING")).not.toThrow();
     expect(() => assertRunTransition("DISPATCHING", "INTEGRATING")).not.toThrow();
+    expect(() => assertRunTransition("DISPATCHING", "REPLANNING")).not.toThrow();
     expect(() => assertRunTransition("INTEGRATING", "VERIFYING")).not.toThrow();
     expect(() => assertRunTransition("VERIFYING", "COMPLETED")).not.toThrow();
     expect(() => assertRunTransition("VERIFYING", "REPAIRING")).not.toThrow();
     expect(() => assertRunTransition("REPAIRING", "INTEGRATING")).not.toThrow();
     expect(() => assertRunTransition("REPLANNING", "PLAN_FROZEN")).not.toThrow();
+    expect(() => assertRunTransition("REPLANNING", "DISPATCHING")).not.toThrow();
   });
 
   it("throws on invalid run transitions", () => {
     expect(() => assertRunTransition("INGEST", "DISPATCHING")).toThrow("Invalid run transition");
     expect(() => assertRunTransition("COMPLETED", "INGEST")).toThrow("Invalid run transition");
-    expect(() => assertRunTransition("DISPATCHING", "REPLANNING")).toThrow("Invalid run transition");
     expect(() => assertRunTransition("ABORTED_POLICY", "INGEST")).toThrow("Invalid run transition");
     expect(() => assertRunTransition("ABORTED_BASELINE", "INGEST")).toThrow("Invalid run transition");
     expect(() => assertRunTransition("ABORTED_BUDGET", "INGEST")).toThrow("Invalid run transition");

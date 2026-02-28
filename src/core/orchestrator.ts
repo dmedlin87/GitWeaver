@@ -6,7 +6,7 @@ import { Logger } from "../observability/logger.js";
 import { Metrics } from "../observability/metrics.js";
 import { REASON_CODES, type ReasonCode } from "./reason-codes.js";
 import { assertRunTransition } from "./state-machine.js";
-import type { DagSpec, ProviderHealthSnapshot, ProviderId, ProviderStatus, RoutingDecision, RunRecord, TaskContract, TaskRecord } from "./types.js";
+import type { DagSpec, LockLease, ProviderHealthSnapshot, ProviderId, ProviderStatus, RoutingDecision, RunRecord, TaskContract, TaskRecord } from "./types.js";
 import { sha256, stableStringify } from "./hash.js";
 import { runCommand } from "./shell.js";
 import { runPreflight, type PreflightOptions } from "../providers/preflight.js";
@@ -515,10 +515,7 @@ export class Orchestrator {
     });
 
     const resourceKeys = this.resourceKeys(task);
-    const leases = lockManager.tryAcquireWrite(resourceKeys, task.taskId);
-    if (!leases) {
-      throw this.errorWithCode(`Unable to acquire lock lease for task ${task.taskId}`, REASON_CODES.LOCK_TIMEOUT);
-    }
+    const leases = await this.acquireWriteLeasesWithRetry(ctx, lockManager, resourceKeys, task.taskId);
 
     for (const lease of leases) {
       ctx.db.upsertLease(ctx.run.runId, lease.resourceKey, task.taskId, lease.expiresAt, lease.fencingToken);
@@ -594,6 +591,8 @@ export class Orchestrator {
 
       const adapter = getProviderAdapter(task.provider);
       const providerStartedAt = Date.now();
+      const providerTimer = `provider.duration.${task.taskId}.${record.attempts}`;
+      this.metrics.startTimer(providerTimer, { taskId: task.taskId, provider: task.provider });
       const heartbeatMs = 15_000;
       ctx.events.append(ctx.run.runId, "TASK_PROVIDER_START", {
         taskId: task.taskId,
@@ -632,10 +631,16 @@ export class Orchestrator {
           executionMode: ctx.config.executionMode,
           containerRuntime: ctx.config.containerRuntime,
           containerImage: ctx.config.containerImage,
+          containerMemoryMb: ctx.config.containerMemoryMb,
+          containerCpuLimit: ctx.config.containerCpuLimit,
+          containerRunAsUser: ctx.config.containerRunAsUser,
+          containerDropCapabilities: ctx.config.containerDropCapabilities,
+          containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
           networkPolicy: "allow"
         });
       } finally {
         clearInterval(providerHeartbeat);
+        this.metrics.endTimer(providerTimer);
       }
 
       const providerElapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
@@ -693,6 +698,8 @@ export class Orchestrator {
       ctx.events.append(ctx.run.runId, "TASK_MERGE_QUEUED", { taskId: task.taskId, commitHash });
 
       await mergeQueue.enqueue(async () => {
+        const mergeTimer = `merge.duration.${task.taskId}.${record.attempts}`;
+        this.metrics.startTimer(mergeTimer, { taskId: task.taskId, provider: task.provider });
         const integrationStart = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_START", { taskId: task.taskId, commitHash });
         ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "MERGE_QUEUED", integrationStart.seq, commitHash);
 
@@ -737,13 +744,26 @@ export class Orchestrator {
             throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
           }
 
-          const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000, {
-            env: ctx.secureExecutor.prepareEnvironment(process.env),
-            executionMode: ctx.config.executionMode,
-            containerRuntime: ctx.config.containerRuntime,
-            containerImage: ctx.config.containerImage,
-            networkPolicy: this.resolveNetworkPolicy(ctx, task.commandPolicy.network)
-          });
+          const gateTimer = `gate.duration.${task.taskId}.${record.attempts}`;
+          this.metrics.startTimer(gateTimer, { taskId: task.taskId, provider: task.provider });
+          const gate = await (async () => {
+            try {
+              return await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000, {
+                env: ctx.secureExecutor.prepareEnvironment(process.env),
+                executionMode: ctx.config.executionMode,
+                containerRuntime: ctx.config.containerRuntime,
+                containerImage: ctx.config.containerImage,
+                containerMemoryMb: ctx.config.containerMemoryMb,
+                containerCpuLimit: ctx.config.containerCpuLimit,
+                containerRunAsUser: ctx.config.containerRunAsUser,
+                containerDropCapabilities: ctx.config.containerDropCapabilities,
+                containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
+                networkPolicy: this.resolveNetworkPolicy(ctx, task.commandPolicy.network)
+              });
+            } finally {
+              this.metrics.endTimer(gateTimer);
+            }
+          })();
           ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
           if (!gate.ok) {
             throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
@@ -766,6 +786,8 @@ export class Orchestrator {
             reason: (verificationError as Error).message
           });
           throw verificationError;
+        } finally {
+          this.metrics.endTimer(mergeTimer);
         }
       });
 
@@ -803,6 +825,20 @@ export class Orchestrator {
       }
 
       if (repairBudget.allowed(failureClass)) {
+        if (reasonCode === REASON_CODES.STALE_TASK) {
+          this.transitionRun(ctx, "REPLANNING");
+          record.state = "PENDING";
+          record.reasonCode = REASON_CODES.STALE_REPLAN_TRIGGERED;
+          ctx.db.upsertTask(record);
+          ctx.events.append(ctx.run.runId, "TASK_REPLAN_ENQUEUED", {
+            taskId: task.taskId,
+            attempt,
+            failureClass
+          });
+          this.transitionRun(ctx, "DISPATCHING");
+          return;
+        }
+
         let changedFiles: string[] = [];
         if (record.commitHash) {
           try {
@@ -948,6 +984,11 @@ export class Orchestrator {
       executionMode: ctx.config.executionMode,
       containerRuntime: ctx.config.containerRuntime,
       containerImage: ctx.config.containerImage,
+      containerMemoryMb: ctx.config.containerMemoryMb,
+      containerCpuLimit: ctx.config.containerCpuLimit,
+      containerRunAsUser: ctx.config.containerRunAsUser,
+      containerDropCapabilities: ctx.config.containerDropCapabilities,
+      containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
       networkPolicy: this.resolveNetworkPolicy(ctx, ctx.config.defaultNetworkPolicy)
     });
     if (!gate.ok && !options.allowBaselineRepair) {
@@ -1091,7 +1132,34 @@ export class Orchestrator {
   private resourceKeys(task: TaskContract): string[] {
     const fromAllow = task.writeScope.allow.map((file) => `file:${file}`);
     const shared = task.writeScope.sharedKey ? [`class:${task.writeScope.sharedKey}`] : [];
-    return [...new Set([...fromAllow, ...shared])];
+    return [...new Set([...fromAllow, ...shared])].sort((a, b) => a.localeCompare(b));
+  }
+
+  private async acquireWriteLeasesWithRetry(
+    ctx: RuntimeContext,
+    lockManager: LockManager,
+    resourceKeys: string[],
+    taskId: string
+  ): Promise<LockLease[]> {
+    let attempt = 0;
+    while (attempt <= ctx.config.lockContentionRetryMax) {
+      const leases = lockManager.tryAcquireWrite(resourceKeys, taskId);
+      if (leases) {
+        return leases;
+      }
+
+      if (attempt === ctx.config.lockContentionRetryMax) {
+        break;
+      }
+
+      attempt += 1;
+      const backoffMs = Math.min(500, ctx.config.lockContentionBackoffMs * attempt);
+      this.metrics.inc("lock.contention_retry");
+      await this.waitMs(backoffMs);
+    }
+
+    this.metrics.inc("lock.contention_exhausted");
+    throw this.errorWithCode(`Unable to acquire lock lease for task ${taskId}`, REASON_CODES.LOCK_TIMEOUT);
   }
 
   private buildDependencyMap(dag: DagSpec): Map<string, string[]> {
@@ -1165,6 +1233,11 @@ export class Orchestrator {
     ctx.run.reasonCode = reasonCode;
     ctx.run.updatedAt = new Date().toISOString();
     this.persistRun(ctx);
+    const metricsSnapshot = this.metrics.snapshot();
+    if (!("metrics" in summary)) {
+      summary.metrics = metricsSnapshot;
+    }
+    writeFileSync(join(ctx.runDir, "metrics.json"), JSON.stringify(metricsSnapshot, null, 2), "utf8");
     ctx.events.append(ctx.run.runId, "RUN_COMPLETE", {
       state,
       reasonCode,

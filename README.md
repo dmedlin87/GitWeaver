@@ -3,6 +3,11 @@
   <img src="assets/gitweaver-mascot-final.png" alt="GitWeaver Mascot" width="300" />
   
   <h1>🧙‍♂️ GitWeaver Orchestrator</h1>
+
+  <p>
+    <a href="https://github.com/dmedlin87/GitWeaver/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dmedlin87/GitWeaver/actions/workflows/ci.yml/badge.svg" /></a>
+    <a href="https://github.com/dmedlin87/GitWeaver/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/dmedlin87/GitWeaver/actions/workflows/codeql.yml/badge.svg" /></a>
+  </p>
   
   <p><b><i>"Weaving code, logic, and LLMs into a seamless thread."</i></b></p>
   
@@ -54,6 +59,14 @@ cd GitWeaver
 pnpm install
 pnpm build
 ```
+
+### Support Matrix
+
+| Component | Supported |
+| :--- | :--- |
+| Node.js | `>= 24.0.0` |
+| pnpm | `10.x` |
+| OS | Windows, macOS, Linux |
 
 **Cast an objective in dev mode:**
 
@@ -116,6 +129,17 @@ pnpm test
 <br/>
 CI runs the exact same validation pipeline via <code>.github/workflows/ci.yml</code> to ensure that no corrupted spells enter the main branch.
 </details>
+
+---
+
+## 📚 Project Policies
+
+- [Contributing](/CONTRIBUTING.md)
+- [Code of Conduct](/CODE_OF_CONDUCT.md)
+- [Security Policy](/SECURITY.md)
+- [License](/LICENSE)
+- [Release Checklist](/docs/release-checklist.md)
+- [Changelog](/CHANGELOG.md)
 
 ---
 

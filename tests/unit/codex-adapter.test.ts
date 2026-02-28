@@ -169,4 +169,32 @@ describe("CodexAdapter – container mode", () => {
     expect(result.stderr).toBe("ERR");
     expect(result.rawOutput).toBe("OUTERR");
   });
+
+  it("passes container hardening options through to runInContainer", async () => {
+    runInContainerMock.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+
+    const adapter = new CodexAdapter();
+    await adapter.execute({
+      ...BASE_REQUEST,
+      executionMode: "container",
+      containerMemoryMb: 1024,
+      containerCpuLimit: 1.5,
+      containerRunAsUser: "1000:1000",
+      containerDropCapabilities: true,
+      containerReadOnlyRootfs: true
+    });
+
+    const opts = runInContainerMock.mock.calls[0]![0] as {
+      memoryMb: number;
+      cpuLimit: number;
+      user: string;
+      dropCapabilities: boolean;
+      readOnlyRootfs: boolean;
+    };
+    expect(opts.memoryMb).toBe(1024);
+    expect(opts.cpuLimit).toBe(1.5);
+    expect(opts.user).toBe("1000:1000");
+    expect(opts.dropCapabilities).toBe(true);
+    expect(opts.readOnlyRootfs).toBe(true);
+  });
 });
