@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { REASON_CODES } from "../../src/core/reason-codes.js";
+import * as postMergeGate from "../../src/verification/post-merge-gate.js";
+import * as shell from "../../src/core/shell.js";
 
 // Mock dependencies
 import { LockManager } from "../../src/scheduler/lock-manager.js";
@@ -217,5 +219,53 @@ describe("Orchestrator Policy Enforcement", () => {
     )).rejects.toMatchObject({
       reasonCode: REASON_CODES.ABORTED_POLICY
     });
+  });
+
+  it("reverts on gate failure", async () => {
+    const task = {
+      taskId: "task-gate-fail",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny"
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+
+    // Gate will fail
+    vi.spyOn(postMergeGate, 'runGate').mockResolvedValueOnce({ ok: false, exitCode: 1, stdout: "", stderr: "failed", command: "pnpm test" });
+    const runCommandSpy = vi.spyOn(shell, 'runCommand');
+
+    await expect(orchestrator.executeTask(
+      ctx,
+      task,
+      record,
+      new LockManager(1000),
+      new LeaseHeartbeat(new LockManager(1000), 1000),
+      new MergeQueue(),
+      new WorktreeManager(),
+      { increment: () => 1, allowed: () => false },
+      new Map(),
+      new Map(),
+      new Map()
+    )).rejects.toMatchObject({
+      reasonCode: REASON_CODES.MERGE_GATE_FAILED
+    });
+
+    const revertCalls = runCommandSpy.mock.calls.filter(call => call[1] && call[1].includes("revert"));
+    expect(revertCalls.length).toBeGreaterThan(0);
+    expect(revertCalls[0][1]).toEqual(["-C", "/repo", "revert", "--no-commit", "hash123"]);
   });
 });
