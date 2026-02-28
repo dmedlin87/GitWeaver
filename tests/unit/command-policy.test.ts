@@ -51,11 +51,11 @@ describe("validateCommand", () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("contains dangerous shell character '>'");
 
-    result = validateCommand("pnpm test `ls` ", policy, config);
+    result = validateCommand("pnpm test \`ls\` ", policy, config);
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("contains dangerous shell character '`'");
+    expect(result.reason).toContain("contains dangerous shell character '\`'");
 
-    result = validateCommand("pnpm test $(ls)", policy, config);
+    result = validateCommand("pnpm test \$(ls)", policy, config);
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("contains dangerous shell character '$'");
 
