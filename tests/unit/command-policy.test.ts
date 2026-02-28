@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { validateCommand } from "../../src/verification/command-policy.js";
 import { DEFAULT_CONFIG } from "../../src/core/config.js";
+import { validateDag } from "../../src/planning/dag-schema.js";
+import { validateCommand } from "../../src/verification/command-policy.js";
 
 describe("validateCommand", () => {
   const config = DEFAULT_CONFIG;
@@ -69,19 +70,49 @@ describe("validateCommand", () => {
     expect(result.reason).toContain("matches task denylist pattern '--force'");
   });
 
-  it("allows everything if allow list is empty (except malicious)", () => {
-      const emptyPolicy = {
-          allow: [],
-          deny: [],
-          network: "deny" as const
-      };
+  it("rejects commands when allow list is empty", () => {
+    const emptyPolicy = {
+      allow: [],
+      deny: [],
+      network: "deny" as const
+    };
 
-      let result = validateCommand("ls -la", emptyPolicy, config);
-      expect(result.allowed).toBe(true);
+    let result = validateCommand("ls -la", emptyPolicy, config);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("no allowed commands configured");
 
-      result = validateCommand("rm -rf /", emptyPolicy, config);
-      expect(result.allowed).toBe(false);
-      expect(result.reason).toContain("matches denylist pattern 'rm -rf'");
+    result = validateCommand("rm -rf /", emptyPolicy, config);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("matches denylist pattern 'rm -rf'");
+  });
+
+  it("rejects gate commands when DAG omits commandPolicy.allow", () => {
+    const dag = validateDag({
+      nodes: [
+        {
+          taskId: "task-1",
+          title: "Task",
+          provider: "codex",
+          type: "code",
+          writeScope: {
+            allow: ["src/**/*.ts"],
+            ownership: "exclusive"
+          },
+          commandPolicy: {
+            deny: []
+          },
+          expected: {},
+          verify: {
+            gateCommand: "pnpm test"
+          },
+          artifactIO: {}
+        }
+      ]
+    });
+
+    const result = validateCommand(dag.nodes[0].verify.gateCommand ?? "", dag.nodes[0].commandPolicy, config);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("no allowed commands configured");
   });
 
   it("handles empty command", () => {
