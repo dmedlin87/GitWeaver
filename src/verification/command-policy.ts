@@ -51,17 +51,22 @@ export function validateCommand(command: string, policy: CommandPolicy, config?:
     }
   }
 
-  // 4. Ensure it starts with an allowed base command if the policy specifies any
-  if (policy.allow.length > 0) {
-    const hasAllowedBase = policy.allow.some(
-      (allowed) => command === allowed || command.startsWith(allowed + " ")
-    );
-    if (!hasAllowedBase) {
-      return {
-        allowed: false,
-        reason: "Gate command rejected: not authorized by task command policy"
-      };
-    }
+  // 4. Enforce explicit allowlisting (deny by default when no allowlist is configured)
+  if (policy.allow.length === 0) {
+    return {
+      allowed: false,
+      reason: "Gate command rejected: no allowed commands configured in task command policy"
+    };
+  }
+
+  const hasAllowedBase = policy.allow.some(
+    (allowed) => command === allowed || command.startsWith(allowed + " ")
+  );
+  if (!hasAllowedBase) {
+    return {
+      allowed: false,
+      reason: "Gate command rejected: not authorized by task command policy"
+    };
   }
 
   return { allowed: true };
