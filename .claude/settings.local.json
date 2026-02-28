@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -50 /c/Users/dmedl/Projects/GitWeaver/src/providers/adapters/*.ts)",
+      "Bash(xargs ls -lt)"
+    ]
+  }
+}
