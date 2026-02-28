@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
-import { minimatch, Minimatch } from "minimatch";
+import { Minimatch } from "minimatch";
 
 export interface ScopeEvaluation {
   allowed: boolean;
