@@ -103,7 +103,8 @@ describe("validateCommand", () => {
           },
           expected: {},
           verify: {
-            gateCommand: "pnpm test"
+            gateCommand: "pnpm test",
+            outputVerificationRequired: false
           },
           artifactIO: {}
         }
