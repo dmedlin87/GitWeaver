@@ -70,11 +70,19 @@ describe("validateCommand", () => {
     expect(result.reason).toContain("matches task denylist pattern '--force'");
   });
 
+<<<<<<< ours
   it("rejects commands when allow list is empty (deny by default)", () => {
     const emptyPolicy = {
       allow: [],
       deny: [],
       network: "deny" as const,
+=======
+  it("rejects commands when allow list is empty", () => {
+    const emptyPolicy = {
+      allow: [],
+      deny: [],
+      network: "deny" as const
+>>>>>>> theirs
     };
 
     let result = validateCommand("ls -la", emptyPolicy, config);
@@ -96,6 +104,7 @@ describe("validateCommand", () => {
           type: "code",
           writeScope: {
             allow: ["src/**/*.ts"],
+<<<<<<< ours
             ownership: "exclusive",
           },
           commandPolicy: {
@@ -115,6 +124,23 @@ describe("validateCommand", () => {
       dag.nodes[0].commandPolicy,
       config,
     );
+=======
+            ownership: "exclusive"
+          },
+          commandPolicy: {
+            deny: []
+          },
+          expected: {},
+          verify: {
+            gateCommand: "pnpm test"
+          },
+          artifactIO: {}
+        }
+      ]
+    });
+
+    const result = validateCommand(dag.nodes[0].verify.gateCommand ?? "", dag.nodes[0].commandPolicy, config);
+>>>>>>> theirs
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("no allowed commands configured");
   });
