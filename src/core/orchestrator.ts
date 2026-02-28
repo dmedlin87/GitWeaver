@@ -723,39 +723,50 @@ export class Orchestrator {
         ctx.db.upsertTask(record);
         ctx.events.append(ctx.run.runId, "TASK_MERGED", { taskId: task.taskId, commitHash });
 
-        if (task.verify.outputVerificationRequired) {
-          const verify = verifyTaskOutput(ctx.run.repoPath, task);
-          if (!verify.ok) {
-            throw this.errorWithCode(`Output verification failed: ${verify.errors.join("; ")}`, REASON_CODES.VERIFY_FAIL_OUTPUT);
+        try {
+          if (task.verify.outputVerificationRequired) {
+            const verify = verifyTaskOutput(ctx.run.repoPath, task);
+            if (!verify.ok) {
+              throw this.errorWithCode(`Output verification failed: ${verify.errors.join("; ")}`, REASON_CODES.VERIFY_FAIL_OUTPUT);
+            }
           }
-        }
 
-        const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
-        const validation = validateCommand(gateCommand, task.commandPolicy, ctx.config);
-        if (!validation.allowed) {
-          throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
-        }
+          const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
+          const validation = validateCommand(gateCommand, task.commandPolicy, ctx.config);
+          if (!validation.allowed) {
+            throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
+          }
 
-        const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000, {
-          env: ctx.secureExecutor.prepareEnvironment(process.env),
-          executionMode: ctx.config.executionMode,
-          containerRuntime: ctx.config.containerRuntime,
-          containerImage: ctx.config.containerImage,
-          networkPolicy: this.resolveNetworkPolicy(ctx, task.commandPolicy.network)
-        });
-        ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
-        if (!gate.ok) {
-          throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
-        }
+          const gate = await runGate(gateCommand, ctx.run.repoPath, (task.verify.gateTimeoutSec ?? 120) * 1000, {
+            env: ctx.secureExecutor.prepareEnvironment(process.env),
+            executionMode: ctx.config.executionMode,
+            containerRuntime: ctx.config.containerRuntime,
+            containerImage: ctx.config.containerImage,
+            networkPolicy: this.resolveNetworkPolicy(ctx, task.commandPolicy.network)
+          });
+          ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
+          if (!gate.ok) {
+            throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
+          }
 
-        const producedArtifacts = task.artifactIO.produces ?? [];
-        const producedSignatures = collectArtifactSignatures(ctx.run.repoPath, producedArtifacts);
-        for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
-          ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
-        }
+          const producedArtifacts = task.artifactIO.produces ?? [];
+          const producedSignatures = collectArtifactSignatures(ctx.run.repoPath, producedArtifacts);
+          for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
+            ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
+          }
 
-        const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
-        ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
+          const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
+          ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
+        } catch (verificationError) {
+          await runCommand("git", ["-C", ctx.run.repoPath, "revert", "--no-commit", commitHash], { timeoutMs: 15_000 });
+          await runCommand("git", ["-C", ctx.run.repoPath, "commit", "-m", `Revert "${commitHash}" due to verification failure`], { timeoutMs: 15_000 });
+          ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_ROLLBACK", {
+            taskId: task.taskId,
+            commitHash,
+            reason: (verificationError as Error).message
+          });
+          throw verificationError;
+        }
       });
 
       record.state = "VERIFIED";
