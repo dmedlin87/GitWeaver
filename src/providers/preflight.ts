@@ -1,3 +1,4 @@
+import semver from "semver";
 import { runCommand, runShellLine } from "../core/shell.js";
 import { promptYesNo } from "../core/prompt.js";
 import type { InstallPlan, InstallResult, ProviderId, ProviderStatus } from "../core/types.js";
@@ -176,7 +177,16 @@ function parseVersion(text: string): string | null {
 }
 
 function isOutdated(status: ProviderStatus): boolean {
-  return Boolean(status.installed && status.versionInstalled && status.versionLatest && status.versionInstalled !== status.versionLatest);
+  if (!status.installed || !status.versionInstalled || !status.versionLatest) {
+    return false;
+  }
+
+  try {
+    return semver.lt(status.versionInstalled, status.versionLatest);
+  } catch {
+    // Fallback to strict inequality if versions are not valid semver
+    return status.versionInstalled !== status.versionLatest;
+  }
 }
 
 function sortUnique(commands: string[]): string[] {
