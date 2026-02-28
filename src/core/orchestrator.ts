@@ -34,7 +34,7 @@ import { RepairBudget } from "../repair/repair-budget.js";
 import { buildRepairTask } from "../repair/repair-planner.js";
 import { OrchestratorDb, isSqliteBusyError } from "../persistence/sqlite.js";
 import { EventLog } from "../persistence/event-log.js";
-import { writeRunManifest } from "../persistence/manifest.js";
+import { writeRunManifest, type RunManifest } from "../persistence/manifest.js";
 import { reconcileResume } from "../persistence/resume-reconcile.js";
 import { validateCommand } from "../verification/command-policy.js";
 import { ProviderHealthManager } from "../providers/health-manager.js";
@@ -1234,10 +1234,16 @@ export class Orchestrator {
     ctx.run.updatedAt = new Date().toISOString();
     this.persistRun(ctx);
     const metricsSnapshot = this.metrics.snapshot();
+    const stageLatencyMs = this.buildStageLatencySummary(metricsSnapshot);
     if (!("metrics" in summary)) {
       summary.metrics = metricsSnapshot;
     }
+    if (Object.keys(stageLatencyMs).length > 0 && !("stageLatencyMs" in summary)) {
+      summary.stageLatencyMs = stageLatencyMs;
+    }
     writeFileSync(join(ctx.runDir, "metrics.json"), JSON.stringify(metricsSnapshot, null, 2), "utf8");
+    writeFileSync(join(ctx.runDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
+    this.updateManifestTelemetry(ctx.runDir, stageLatencyMs);
     ctx.events.append(ctx.run.runId, "RUN_COMPLETE", {
       state,
       reasonCode,
@@ -1380,6 +1386,73 @@ export class Orchestrator {
       return REASON_CODES.SQLITE_BUSY_EXHAUSTED;
     }
     return reasonCode ?? REASON_CODES.ABORTED_POLICY;
+  }
+
+  private buildStageLatencySummary(metricsSnapshot: Record<string, unknown>): Record<string, { count: number; min: number; max: number; avg: number }> {
+    const histogramsRaw = metricsSnapshot.histograms;
+    if (!histogramsRaw || typeof histogramsRaw !== "object") {
+      return {};
+    }
+
+    const stageBuckets = {
+      provider: [] as number[],
+      merge: [] as number[],
+      gate: [] as number[]
+    };
+
+    for (const [key, value] of Object.entries(histogramsRaw as Record<string, unknown>)) {
+      if (!Array.isArray(value)) {
+        continue;
+      }
+      const samples = value.filter((sample): sample is number => typeof sample === "number" && Number.isFinite(sample));
+      if (samples.length === 0) {
+        continue;
+      }
+
+      const metricName = key.split(":")[0] ?? key;
+      if (metricName.startsWith("provider.duration.")) {
+        stageBuckets.provider.push(...samples);
+      } else if (metricName.startsWith("merge.duration.")) {
+        stageBuckets.merge.push(...samples);
+      } else if (metricName.startsWith("gate.duration.")) {
+        stageBuckets.gate.push(...samples);
+      }
+    }
+
+    const summary: Record<string, { count: number; min: number; max: number; avg: number }> = {};
+    for (const [stage, samples] of Object.entries(stageBuckets)) {
+      if (samples.length === 0) {
+        continue;
+      }
+      const total = samples.reduce((acc, sample) => acc + sample, 0);
+      summary[stage] = {
+        count: samples.length,
+        min: Math.min(...samples),
+        max: Math.max(...samples),
+        avg: Number((total / samples.length).toFixed(2))
+      };
+    }
+    return summary;
+  }
+
+  private updateManifestTelemetry(
+    runDir: string,
+    stageLatencyMs: Record<string, { count: number; min: number; max: number; avg: number }>
+  ): void {
+    if (Object.keys(stageLatencyMs).length === 0) {
+      return;
+    }
+
+    const manifestPath = join(runDir, "manifest.json");
+    try {
+      const existing = JSON.parse(readFileSync(manifestPath, "utf8")) as RunManifest;
+      writeRunManifest(manifestPath, {
+        ...existing,
+        stageLatencyMs
+      });
+    } catch {
+      // Manifest is optional in some tests and abort paths.
+    }
   }
 
   private progress(

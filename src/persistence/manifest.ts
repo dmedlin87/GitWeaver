@@ -10,6 +10,12 @@ export interface RunManifest {
   providerVersions: Record<string, string | undefined>;
   providerHealth?: Record<string, unknown>;
   executionMode?: "host" | "container";
+  stageLatencyMs?: Record<string, {
+    count: number;
+    min: number;
+    max: number;
+    avg: number;
+  }>;
   createdAt: string;
 }
 

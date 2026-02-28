@@ -1,4 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { REASON_CODES } from "../../src/core/reason-codes.js";
 import * as postMergeGate from "../../src/verification/post-merge-gate.js";
@@ -10,6 +13,13 @@ import { LockManager } from "../../src/scheduler/lock-manager.js";
 import { LeaseHeartbeat } from "../../src/scheduler/lease-heartbeat.js";
 import { MergeQueue } from "../../src/scheduler/merge-queue.js";
 import { WorktreeManager } from "../../src/execution/worktree-manager.js";
+
+let mockAdapterExecution: { exitCode: number; stdout: string; stderr: string; rawOutput?: string } = {
+  exitCode: 0,
+  stdout: "",
+  stderr: ""
+};
+const tempDirs: string[] = [];
 
 vi.mock("../../src/scheduler/lock-manager.js", () => ({
   LockManager: class {
@@ -45,7 +55,7 @@ vi.mock("../../src/execution/worktree-manager.js", () => ({
 
 vi.mock("../../src/providers/adapters/index.js", () => ({
   getProviderAdapter: () => ({
-    execute: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+    execute: async () => mockAdapterExecution
   })
 }));
 
@@ -95,6 +105,11 @@ describe("Orchestrator Policy Enforcement", () => {
   let ctx: any;
 
   beforeEach(() => {
+    mockAdapterExecution = {
+      exitCode: 0,
+      stdout: "",
+      stderr: ""
+    };
     orchestrator = new Orchestrator();
     ctx = {
       run: {
@@ -147,6 +162,15 @@ describe("Orchestrator Policy Enforcement", () => {
       runDir: "/tmp/run",
       onProgress: () => {}
     };
+  });
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
   });
 
   it("rejects gate command not in allowlist", async () => {
@@ -331,5 +355,110 @@ describe("Orchestrator Policy Enforcement", () => {
     expect(record.state).toBe("PENDING");
     expect(record.reasonCode).toBe(REASON_CODES.STALE_REPLAN_TRIGGERED);
     expect(taskById.size).toBe(0);
+  });
+
+  it("persists checkpoint before integrate to support crash-mid-merge recovery", async () => {
+    const checkpointSpy = vi.fn();
+    ctx.db.upsertResumeCheckpoint = checkpointSpy;
+    vi.spyOn(orchestrator, "integrateCommit").mockRejectedValueOnce(
+      Object.assign(new Error("crash mid merge"), { reasonCode: REASON_CODES.MERGE_CONFLICT })
+    );
+
+    const task = {
+      taskId: "task-merge-crash",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny"
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+
+    await orchestrator.executeTask(
+      ctx,
+      task,
+      record,
+      new LockManager(1000),
+      new LeaseHeartbeat(new LockManager(1000), 1000),
+      new MergeQueue(),
+      new WorktreeManager(),
+      { increment: () => 1, allowed: () => true },
+      new Map(),
+      new Map(),
+      new Map()
+    );
+
+    expect(checkpointSpy).toHaveBeenCalledWith("run-1", "task-merge-crash", "MERGE_QUEUED", 1, "hash123");
+  });
+
+  it("captures raw forensic logs only when forensic policy is enabled", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "gw-orch-policy-forensics-"));
+    tempDirs.push(runDir);
+    ctx.runDir = runDir;
+    ctx.config.forensicRawLogs = true;
+    const appendSpy = vi.fn(() => ({ seq: 1 }));
+    ctx.events.append = appendSpy;
+    mockAdapterExecution = {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      rawOutput: "provider raw output"
+    };
+
+    const task = {
+      taskId: "task-forensics",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny"
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash"
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+
+    await orchestrator.executeTask(
+      ctx,
+      task,
+      record,
+      new LockManager(1000),
+      new LeaseHeartbeat(new LockManager(1000), 1000),
+      new MergeQueue(),
+      new WorktreeManager(),
+      { increment: () => 1, allowed: () => true },
+      new Map(),
+      new Map(),
+      new Map()
+    );
+
+    const forensicEvent = appendSpy.mock.calls.find(
+      (call) => call[1] === "TASK_FORENSIC_RAW_CAPTURED"
+    );
+    expect(forensicEvent).toBeDefined();
+    const payload = forensicEvent?.[2] as { path: string };
+    expect(existsSync(payload.path)).toBe(true);
+    expect(readFileSync(payload.path, "utf8")).toContain("provider raw output");
   });
 });

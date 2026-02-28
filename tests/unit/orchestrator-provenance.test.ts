@@ -191,4 +191,37 @@ describe("orchestrator provenance helpers", () => {
     expect(manifest.providerVersions.codex).toBe("1.2.3");
     expect(manifest.dagHash).toBe(dag.dagHash);
   });
+
+  it("surfaces provider/merge/gate latency summaries in summary and manifest artifacts", async () => {
+    const orchestrator = new Orchestrator() as any;
+    const runDir = makeTempDir();
+    const ctx = makeCtx(runDir);
+    ctx.providerVersions.codex = "1.2.3";
+
+    const dag = await orchestrator.plan(ctx, {
+      prompt: "Implement telemetry checks",
+      dryRun: true
+    });
+    orchestrator.writeManifest(ctx, dag);
+
+    orchestrator.metrics.startTimer("provider.duration.task-1.1", { taskId: "task-1", provider: "claude" });
+    orchestrator.metrics.endTimer("provider.duration.task-1.1");
+    orchestrator.metrics.startTimer("merge.duration.task-1.1", { taskId: "task-1", provider: "claude" });
+    orchestrator.metrics.endTimer("merge.duration.task-1.1");
+    orchestrator.metrics.startTimer("gate.duration.task-1.1", { taskId: "task-1", provider: "claude" });
+    orchestrator.metrics.endTimer("gate.duration.task-1.1");
+
+    const outcome = orchestrator.completeRun(ctx, "COMPLETED", undefined, {});
+    expect(outcome.summary.stageLatencyMs).toBeDefined();
+
+    const summary = readJson(join(runDir, "summary.json"));
+    expect(summary.stageLatencyMs.provider.count).toBe(1);
+    expect(summary.stageLatencyMs.merge.count).toBe(1);
+    expect(summary.stageLatencyMs.gate.count).toBe(1);
+
+    const manifest = readJson(join(runDir, "manifest.json"));
+    expect(manifest.stageLatencyMs.provider.count).toBe(1);
+    expect(manifest.stageLatencyMs.merge.count).toBe(1);
+    expect(manifest.stageLatencyMs.gate.count).toBe(1);
+  });
 });

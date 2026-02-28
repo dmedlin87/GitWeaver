@@ -1,6 +1,7 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 import { OrchestratorDb, isSqliteBusyError } from "../../src/persistence/sqlite.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -146,6 +147,74 @@ describe("OrchestratorDb", () => {
 
         expect(retryAttempts).toEqual([1, 2]);
         expect(exhaustedAttempts).toEqual([2]);
+    });
+
+    it("eventually writes when contention clears within retry budget", async () => {
+        tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-contention-"));
+        dbPath = join(tempDir, "state.sqlite");
+
+        const retryAttempts: number[] = [];
+        const exhaustedAttempts: number[] = [];
+        db = new OrchestratorDb(dbPath, {
+            busyTimeoutMs: 1,
+            busyRetryMax: 20,
+            onBusyRetry: (_operation, attempt) => retryAttempts.push(attempt),
+            onBusyExhausted: (_operation, attempts) => exhaustedAttempts.push(attempts)
+        });
+        db.migrate();
+
+        const worker = new Worker(
+            `
+            const { parentPort, workerData } = require("node:worker_threads");
+            const { DatabaseSync } = require("node:sqlite");
+            const blocker = new DatabaseSync(workerData.dbPath);
+            blocker.exec("BEGIN IMMEDIATE");
+            parentPort.postMessage("locked");
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.holdMs);
+            blocker.exec("ROLLBACK");
+            blocker.close();
+            parentPort.postMessage("released");
+            `,
+            {
+                eval: true,
+                workerData: { dbPath, holdMs: 120 }
+            }
+        );
+
+        const seen = new Set<string>();
+        worker.on("message", (message: unknown) => {
+            if (typeof message === "string") {
+                seen.add(message);
+            }
+        });
+
+        const waitFor = async (target: string): Promise<void> => {
+            if (seen.has(target)) {
+                return;
+            }
+            await new Promise<void>((resolve, reject) => {
+                const onMessage = (message: unknown) => {
+                    if (message === target) {
+                        worker.off("message", onMessage);
+                        resolve();
+                    }
+                };
+                worker.on("message", onMessage);
+                worker.once("error", reject);
+            });
+        };
+
+        try {
+            await waitFor("locked");
+            db.upsertRun(makeRun("run-busy-cleared"));
+            const run = db.getRun("run-busy-cleared");
+            expect(run?.runId).toBe("run-busy-cleared");
+            expect(retryAttempts.length).toBeGreaterThan(0);
+            expect(exhaustedAttempts).toEqual([]);
+            await waitFor("released");
+        } finally {
+            await worker.terminate();
+        }
     });
 
     it("detects SQLITE_BUSY lock errors from node:sqlite error shapes", () => {

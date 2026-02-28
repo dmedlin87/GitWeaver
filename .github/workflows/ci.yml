@@ -98,3 +98,32 @@ jobs:
 
       - name: Dry-run smoke e2e
         run: pnpm test -- tests/e2e/cli-extended.e2e.test.ts -t "--dry-run --json in a valid git repo exits 0 and outputs valid JSON"
+
+  sqlite-contention-matrix:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: SQLite contention tests
+        run: pnpm test -- tests/unit/sqlite.test.ts

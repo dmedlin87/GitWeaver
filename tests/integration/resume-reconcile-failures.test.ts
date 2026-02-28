@@ -464,4 +464,28 @@ describe("resume reconciliation failure modes", () => {
     expect(decision.requeueTaskIds).toContain("task-3");
     expect(decision.reasons["task-3"]).toBe("RESUME_CRASH_RECOVERY");
   });
+
+  it("requeues merge-in-flight tasks when MERGE_QUEUED has no git proof", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    const run: RunRecord = {
+      runId: "run-merge-in-flight",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      { runId: run.runId, taskId: "task-merge", provider: "claude", type: "code", state: "MERGE_QUEUED", attempts: 1, contractHash: "h" }
+    ];
+
+    const decision = await reconcileResume({ run, tasksFromDb, events: [] });
+    expect(decision.requeueTaskIds).toContain("task-merge");
+    expect(decision.reasons["task-merge"]).toBe("RESUME_CRASH_RECOVERY");
+  });
 });
