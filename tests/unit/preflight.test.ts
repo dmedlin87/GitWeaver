@@ -63,6 +63,70 @@ describe("buildInstallPlan", () => {
     expect(plan.commands.join("\n")).toContain("@anthropic-ai/claude-code@latest");
   });
 
+  it("does not plan upgrades when installed version is newer than latest (e.g. beta/rc)", () => {
+    const plan = buildInstallPlan(
+      [
+        {
+          provider: "claude",
+          installed: true,
+          versionInstalled: "2.0.0-beta.1",
+          versionLatest: "1.5.0",
+          authStatus: "OK",
+          healthStatus: "HEALTHY",
+          issues: []
+        },
+        {
+          provider: "gemini",
+          installed: true,
+          versionInstalled: "3.0.0",
+          versionLatest: "2.5.0",
+          authStatus: "OK",
+          healthStatus: "HEALTHY",
+          issues: []
+        }
+      ],
+      {
+        installMissing: "prompt",
+        upgradeProviders: "prompt"
+      }
+    );
+
+    expect(plan.outdated).toEqual([]);
+    expect(plan.commands).toEqual([]);
+  });
+
+  it("falls back to strict equality when versions are not valid semver", () => {
+    const plan = buildInstallPlan(
+      [
+        {
+          provider: "claude",
+          installed: true,
+          versionInstalled: "not-semver-1",
+          versionLatest: "not-semver-2",
+          authStatus: "OK",
+          healthStatus: "HEALTHY",
+          issues: []
+        },
+        {
+          provider: "gemini",
+          installed: true,
+          versionInstalled: "not-semver-1",
+          versionLatest: "not-semver-1",
+          authStatus: "OK",
+          healthStatus: "HEALTHY",
+          issues: []
+        }
+      ],
+      {
+        installMissing: "prompt",
+        upgradeProviders: "prompt"
+      }
+    );
+
+    expect(plan.outdated).toEqual(["claude"]);
+    expect(plan.commands.join("\n")).toContain("@anthropic-ai/claude-code@latest");
+  });
+
   it("adds AUTH_MISSING when provider auth is missing", async () => {
     mockGeminiChecks({
       authCode: 0,
