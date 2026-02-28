@@ -105,6 +105,7 @@ export interface ProviderSpec {
   authFixCommand: string;
   installFallbackByOs: Partial<Record<"win32" | "darwin" | "linux", string>>;
   windowsNotes?: string;
+  configPaths?: string[];
 }
 
 export interface ProviderStatus {
