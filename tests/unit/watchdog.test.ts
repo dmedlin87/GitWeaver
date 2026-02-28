@@ -31,7 +31,7 @@ describe('watchdog', () => {
       value: originalPlatform,
       configurable: true
     });
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   describe('killProcessTree', () => {
