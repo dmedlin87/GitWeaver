@@ -26,11 +26,29 @@ export function validateCommand(command: string, policy: CommandPolicy): PolicyV
     }
   }
 
+<<<<<<< ours
   const allowed = policy.allow.some((pattern) => command.startsWith(pattern));
   if (!allowed) {
     return {
       allowed: false,
       reason: `Command does not start with any allowed prefix`
+=======
+  // 4. Enforce explicit allowlisting (deny by default when no allowlist is configured)
+  if (policy.allow.length === 0) {
+    return {
+      allowed: false,
+      reason: "Gate command rejected: no allowed commands configured in task command policy"
+    };
+  }
+
+  const hasAllowedBase = policy.allow.some(
+    (allowed) => command === allowed || command.startsWith(allowed + " ")
+  );
+  if (!hasAllowedBase) {
+    return {
+      allowed: false,
+      reason: "Gate command rejected: not authorized by task command policy"
+>>>>>>> theirs
     };
   }
 

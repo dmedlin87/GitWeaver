@@ -26,6 +26,31 @@ describe("validateCommand", () => {
     const policy = { allow: [], deny: [] };
     const result = validateCommand("ls", policy);
     expect(result.allowed).toBe(false);
+<<<<<<< ours
     expect(result.reason).toContain("allowlist is empty");
+=======
+    expect(result.reason).toContain("matches task denylist pattern '--force'");
+  });
+
+  it("rejects commands when allow list is empty", () => {
+      const emptyPolicy = {
+          allow: [],
+          deny: [],
+          network: "deny" as const
+      };
+
+      let result = validateCommand("ls -la", emptyPolicy, config);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("no allowed commands configured");
+
+      result = validateCommand("rm -rf /", emptyPolicy, config);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("matches denylist pattern 'rm -rf'");
+  });
+
+  it("handles empty command", () => {
+    const result = validateCommand("", policy, config);
+    expect(result.allowed).toBe(true);
+>>>>>>> theirs
   });
 });
