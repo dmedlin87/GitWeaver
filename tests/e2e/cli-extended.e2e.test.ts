@@ -165,6 +165,48 @@ describe("cli e2e – providers command", () => {
   });
 });
 
+describe("cli e2e – forensicRawLogs config acceptance", () => {
+  it("accepts config file with forensicRawLogs=true on --dry-run and exits 0", () => {
+    const repo = makeGitRepo();
+    const configPath = join(repo, "gw-config.json");
+    writeFileSync(configPath, JSON.stringify({ forensicRawLogs: true }));
+
+    const result = runCli([
+      "run", "test forensic config",
+      "--dry-run",
+      "--repo", repo,
+      "--config", configPath,
+      "--non-interactive",
+      "--install-missing", "never",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = parseJsonStdout(result.stdout) as Record<string, unknown>;
+    expect(parsed.runId).toEqual(expect.any(String));
+  });
+
+  it("accepts config file with forensicRawLogs=false on --dry-run and exits 0", () => {
+    const repo = makeGitRepo();
+    const configPath = join(repo, "gw-config.json");
+    writeFileSync(configPath, JSON.stringify({ forensicRawLogs: false }));
+
+    const result = runCli([
+      "run", "test forensic config off",
+      "--dry-run",
+      "--repo", repo,
+      "--config", configPath,
+      "--non-interactive",
+      "--install-missing", "never",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = parseJsonStdout(result.stdout) as Record<string, unknown>;
+    expect(parsed.runId).toEqual(expect.any(String));
+  });
+});
+
 describe("cli e2e – stderr/exit code contracts", () => {
   it("unknown command outputs error and exits non-zero", () => {
     const result = runCli(["nonexistent-command"]);
