@@ -41,6 +41,17 @@ export function validateCommand(command: string, policy: CommandPolicy): PolicyV
     };
   }
 
+<<<<<<< ours
+=======
+  // 4. Enforce explicit allowlisting (deny by default when no allowlist is configured)
+  if (policy.allow.length === 0) {
+    return {
+      allowed: false,
+      reason: "Gate command rejected: no allowed commands configured in task command policy"
+    };
+  }
+
+>>>>>>> theirs
   const hasAllowedBase = policy.allow.some(
     (allowed) => command === allowed || command.startsWith(allowed + " ")
   );
@@ -48,6 +59,9 @@ export function validateCommand(command: string, policy: CommandPolicy): PolicyV
     return {
       allowed: false,
       reason: "Gate command rejected: not authorized by task command policy"
+<<<<<<< ours
+>>>>>>> theirs
+=======
 >>>>>>> theirs
     };
   }
