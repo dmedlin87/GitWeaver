@@ -1,7 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { LockManager } from "../../src/scheduler/lock-manager.js";
+import { MergeQueue } from "../../src/scheduler/merge-queue.js";
+import { LeaseHeartbeat } from "../../src/scheduler/lease-heartbeat.js";
+import type { LockLease } from "../../src/core/types.js";
 
 describe("LockManager", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("issues monotonic fencing tokens", () => {
     const manager = new LockManager(1000);
 
@@ -23,5 +35,74 @@ describe("LockManager", () => {
 
     const second = manager.tryAcquireWrite(["file:a.ts"], "task-2");
     expect(second).toBeNull();
+  });
+
+  it("stale lease attempting merge throws an error in MergeQueue", async () => {
+    const queue = new MergeQueue();
+    let executed = false;
+
+    // validate returns false to simulate stale lease
+    const resultPromise = queue.enqueue(
+      async () => {
+        executed = true;
+      },
+      () => false
+    );
+
+    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before execution");
+    expect(executed).toBe(false);
+  });
+
+  it("timeout + reacquire + stale token reject stops renewals", () => {
+    const manager = new LockManager(100);
+    const heartbeat = new LeaseHeartbeat(manager, 50);
+
+    const firstLease = manager.tryAcquireWrite(["file:a.ts"], "task-1");
+    expect(firstLease).not.toBeNull();
+    const token1 = firstLease![0].fencingToken;
+
+    const renewSpy = vi.spyOn(manager, "renew");
+
+    heartbeat.start("task-1", firstLease!);
+
+    // Move forward enough to cause a renewal
+    vi.advanceTimersByTime(50);
+    expect(renewSpy).toHaveBeenCalledWith("file:a.ts", "task-1", token1);
+    renewSpy.mockClear();
+
+    // Because the renewal happened at t=50ms, the next heartbeat is at t=100ms.
+    // If we advance to t=90ms, we haven't renewed again yet.
+    vi.advanceTimersByTime(40);
+
+    // So the lock expires at t=50ms + 100ms = 150ms.
+    // Let's stop the owner so it doesn't renew anymore (simulating a crash or stall).
+    heartbeat.stopOwner("task-1");
+
+    // Advance past expiration (150ms)
+    vi.advanceTimersByTime(70);
+    // total time = 50 + 40 + 70 = 160ms. Lock is now expired!
+
+    // task-2 steals the lock
+    const secondLease = manager.tryAcquireWrite(["file:a.ts"], "task-2");
+    expect(secondLease).not.toBeNull();
+    const token2 = secondLease![0].fencingToken;
+    expect(token2).toBeGreaterThan(token1);
+
+    // Wait, the previous steps stopped task-1's heartbeat. Let's start it back up,
+    // as if it was merely blocked on the event loop and now tries to renew again.
+    heartbeat.start("task-1", firstLease!);
+
+    // Next renewal for task-1 should happen and FAIL, clearing the timer
+    vi.advanceTimersByTime(50);
+    expect(renewSpy).toHaveBeenCalledWith("file:a.ts", "task-1", token1);
+    renewSpy.mockClear();
+
+    // The timer should now be cleared because `renew` returned false,
+    // so advancing time shouldn't call renew again
+    vi.advanceTimersByTime(100);
+    expect(renewSpy).not.toHaveBeenCalled();
+
+    // We don't need to call stopOwner again if it cleared correctly.
+    manager.releaseOwner("task-2");
   });
 });
