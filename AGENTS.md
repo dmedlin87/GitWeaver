@@ -112,10 +112,8 @@ On resume, state is reconciled with this priority: **git > event log > SQLite**.
 
 ## Current Development Focus
 
-See `ROADMAP.md` for the prioritized gap analysis and PR sequence. Key areas:
-- Recovery algorithm completeness (resume precedence)
-- Scheduler resilience under provider degradation
-- Hardened test matrix coverage
+See `ROADMAP.md` for the canonical implementation delta and active priorities.
+As of 2026-02-28, `ROADMAP.md` reports no open canonical gaps.
 
 ## Architecture Documentation
 

@@ -141,6 +141,12 @@ CI runs the exact same validation pipeline via <code>.github/workflows/ci.yml</c
 - [Release Checklist](/docs/release-checklist.md)
 - [Changelog](/CHANGELOG.md)
 
+## 🧭 Project Navigation
+
+- [Roadmap](./ROADMAP.md)
+- [Agent Guidance](./AGENTS.md)
+- [Claude Handoff](./CLAUDE.md)
+
 ---
 
 <div align="center">
