@@ -14,7 +14,11 @@ export class LeaseHeartbeat {
       }
 
       const timer = setInterval(() => {
-        this.lockManager.renew(lease.resourceKey, ownerTaskId, lease.fencingToken);
+        const renewed = this.lockManager.renew(lease.resourceKey, ownerTaskId, lease.fencingToken);
+        if (!renewed) {
+          clearInterval(timer);
+          this.timers.delete(key);
+        }
       }, this.renewMs);
       this.timers.set(key, timer);
     }
