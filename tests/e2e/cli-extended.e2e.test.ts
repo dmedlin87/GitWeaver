@@ -31,6 +31,7 @@ function makeTempDir(): string {
 function makeGitRepo(): string {
   const dir = makeTempDir();
   execSync("git init", { cwd: dir });
+  execSync("git config core.autocrlf false", { cwd: dir });
   execSync(`git config user.email "test@test.com"`, { cwd: dir });
   execSync(`git config user.name "Test"`, { cwd: dir });
   writeFileSync(join(dir, "README.md"), "# test\n");

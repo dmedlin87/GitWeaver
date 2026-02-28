@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunRecord, TaskRecord } from "../../src/core/types.js";
 import { reconcileResume } from "../../src/persistence/resume-reconcile.js";
+import { runGit, initGitRepo } from "../helpers/git-fixture.js";
 
 const tempDirs: string[] = [];
 
@@ -23,20 +23,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-function runGit(repoPath: string, args: string[]): string {
-  const result = spawnSync("git", args, { cwd: repoPath, encoding: "utf8" });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-  }
-  return result.stdout.trim();
-}
-
 describe("resume reconciliation squash and edge cases", () => {
   it("identifies multiple tasks in a single squash commit", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -98,9 +88,7 @@ ORCH_TASK_ID=task-B
 
   it("requeues task if commit exists but lacks metadata (manual merge missing metadata)", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);

@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EventRecord, RunRecord, TaskRecord } from "../../src/core/types.js";
 import { reconcileResume } from "../../src/persistence/resume-reconcile.js";
+import { runGit, initGitRepo } from "../helpers/git-fixture.js";
 
 const tempDirs: string[] = [];
 
@@ -23,20 +23,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-function runGit(repoPath: string, args: string[]): string {
-  const result = spawnSync("git", args, { cwd: repoPath, encoding: "utf8" });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
-  }
-  return result.stdout.trim();
-}
-
 describe("resume reconciliation failure modes", () => {
   it("detects DB says MERGED but Git commit missing (Partial Write / Rollback)", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -81,9 +71,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("detects DB says PENDING but Git has commit (DB Lag)", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -131,9 +119,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("sorts task IDs for determinism", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -181,9 +167,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("detects external drift commits since baseline", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
 
     writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
     runGit(repo, ["add", "."]);
@@ -222,9 +206,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("uses event-log precedence over sqlite when git has no merge proof", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -275,9 +257,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("requeues event-only tasks and marks sqlite lag", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -316,9 +296,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("escalates ambiguous event-vs-git mismatch deterministically", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -357,9 +335,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("keeps git as highest precedence over conflicting event state", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
     runGit(repo, ["commit", "-m", "initial"]);
@@ -415,9 +391,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("escalates when event log is ESCALATED and no git proof", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
 
     const run: RunRecord = {
       runId: "run-esc-event",
@@ -445,9 +419,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("escalates when dbTask is ESCALATED and no git proof", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
 
     const run: RunRecord = {
       runId: "run-esc-db",
@@ -471,9 +443,7 @@ describe("resume reconciliation failure modes", () => {
 
   it("requeues with crash recovery reason when dbTask or eventState is RUNNING with no git proof", async () => {
     const repo = makeTempDir();
-    runGit(repo, ["init"]);
-    runGit(repo, ["config", "user.email", "ci@example.com"]);
-    runGit(repo, ["config", "user.name", "CI"]);
+    initGitRepo(repo);
 
     const run: RunRecord = {
       runId: "run-crash-rec",
