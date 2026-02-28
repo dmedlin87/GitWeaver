@@ -702,7 +702,7 @@ export class Orchestrator {
         }
 
         const gateCommand = task.verify.gateCommand || ctx.config.baselineGateCommand;
-        const validation = validateCommand(gateCommand, task.commandPolicy);
+        const validation = validateCommand(gateCommand, task.commandPolicy, ctx.config);
         if (!validation.allowed) {
           throw this.errorWithCode(`Gate command rejected: ${validation.reason}`, REASON_CODES.ABORTED_POLICY);
         }

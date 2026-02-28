@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderId } from "../core/types.js";
+import { PROVIDER_SPECS } from "../providers/registry.js";
 
 function providerConfigPaths(provider: ProviderId): string[] {
   const home = process.env.USERPROFILE || process.env.HOME || "";
@@ -9,13 +10,8 @@ function providerConfigPaths(provider: ProviderId): string[] {
     return [];
   }
 
-  if (provider === "codex") {
-    return [join(home, ".codex")];
-  }
-  if (provider === "claude") {
-    return [join(home, ".claude")];
-  }
-  return [join(home, ".gemini"), join(home, ".config", "gemini")];
+  const paths = PROVIDER_SPECS[provider]?.configPaths || [];
+  return paths.map(p => join(home, p));
 }
 
 async function fileExists(path: string): Promise<boolean> {

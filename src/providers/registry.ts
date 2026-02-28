@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { ProviderId, ProviderSpec } from "../core/types.js";
 
 export const PROVIDER_SPECS: Record<ProviderId, ProviderSpec> = {
@@ -11,7 +12,8 @@ export const PROVIDER_SPECS: Record<ProviderId, ProviderSpec> = {
     installFallbackByOs: {
       darwin: "brew install --cask codex"
     },
-    windowsNotes: "OpenAI recommends WSL for best Codex CLI reliability on Windows."
+    windowsNotes: "OpenAI recommends WSL for best Codex CLI reliability on Windows.",
+    configPaths: [".codex"]
   },
   claude: {
     id: "claude",
@@ -22,7 +24,8 @@ export const PROVIDER_SPECS: Record<ProviderId, ProviderSpec> = {
     authFixCommand: "claude auth login",
     installFallbackByOs: {
       win32: "winget install --id Anthropic.Claude -e"
-    }
+    },
+    configPaths: [".claude"]
   },
   gemini: {
     id: "gemini",
@@ -32,7 +35,8 @@ export const PROVIDER_SPECS: Record<ProviderId, ProviderSpec> = {
     authFixCommand: "gemini",
     installFallbackByOs: {
       darwin: "brew install gemini-cli"
-    }
+    },
+    configPaths: [".gemini", join(".config", "gemini")]
   }
 };
 
