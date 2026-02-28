@@ -19,7 +19,7 @@ against the existing test suite before merging.
 - **Package manager**: pnpm 10
 - **Test framework**: Vitest 4
 - **Key deps**: Commander (CLI), Zod 4 (validation), node-pty (sandboxing),
-  ts-morph (AST), minimatch (glob patterns)
+  ts-morph (AST), minimatch (glob patterns), semver (version checks)
 - **Persistence**: `node:sqlite` (built-in DatabaseSync) + NDJSON event logs
 - **CI**: GitHub Actions (Node 24, pnpm 10, ubuntu-latest)
 
@@ -53,10 +53,10 @@ src/
   observability/ Structured logging, metrics, redaction, event taxonomy
 
 tests/
-  unit/          26 test files — module-level behavior and edge cases
-  integration/   4 test files — resume reconciliation, persistence workflows
+  unit/          32 test files — module-level behavior and edge cases
+  integration/   5 test files — resume reconciliation, persistence workflows, provider storm
   e2e/           1 test file  — full CLI workflows
-  benchmark/     2 test files — worktree creation perf, DB loop perf
+  benchmark/     1 test file  — worktree creation perf
 ```
 
 ### Key Entry Points
