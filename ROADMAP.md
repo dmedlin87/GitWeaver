@@ -19,10 +19,8 @@ Only items with remaining implementation or evidence gaps are listed below.
 
 | Priority | Owner | Gap | Acceptance Criteria |
 | --- | --- | --- | --- |
-| P1 | Runtime/Persistence | SQLite contention hardening is functionally present but still needs explicit cross-platform stress evidence. | WAL + busy timeout + bounded retry telemetry remain enabled; add deterministic lock/contention stress tests proving behavior on Linux and Windows runners. |
 | P1 | Runtime/Execution | Watchdog/forensic guarantees need stronger end-to-end coverage. | Add integration/e2e scenarios proving hung provider process termination path and policy-gated raw forensic capture semantics. |
-| P2 | Observability | Stage-level latency telemetry exists but artifact/report surfacing is limited. | Provider/merge/gate timing histograms are summarized in run artifacts (manifest/summary) and asserted in tests. |
-| P1 | Verification | Hardened failure matrix is still incomplete for specific disruption paths. | Add explicit scenarios for crash-mid-merge, watchdog hang, and drift-injection recovery behavior. |
+| P1 | Verification | Hardened failure matrix is still incomplete for watchdog-hang disruption path. | Add explicit integration/e2e scenario for watchdog-hang recovery behavior. (Crash-mid-merge and drift-injection are already covered in `tests/integration/resume-reconcile-failures.test.ts`.) |
 
 ## Completed Since Prior Revision
 
@@ -37,6 +35,8 @@ The following roadmap items are implemented and should no longer be tracked as o
 - Governance and collaboration baseline files (`LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, templates, CODEOWNERS).
 - Security automation baseline (Dependabot + CodeQL workflow).
 - Release hygiene/trust signals (`CHANGELOG.md`, release checklist/workflow, README policy links/badges).
+- SQLite contention hardening: WAL + busy timeout + bounded retry on Linux and Windows CI runners; deterministic lock/contention stress tests in `tests/unit/sqlite.test.ts`.
+- Stage-level latency telemetry: provider/merge/gate timing written to run manifest/summary in `src/core/orchestrator.ts` and asserted in `tests/unit/orchestrator-provenance.test.ts`.
 
 ## Recommended PR Sequence (Rebased)
 
@@ -47,29 +47,17 @@ Ideal PR size target:
 - one operational theme per PR
 - includes tests proving behavior
 
-### PR 1: Failure Matrix Expansion
+### PR 1: Watchdog-Hang Integration/E2E Coverage
 
-- Scope: Add integration/e2e scenarios for crash-mid-merge, watchdog hang, and drift injection.
-- Target size: 250-450 LOC, 4-7 files.
-- Why first: closes highest-risk unverified failure windows.
+- Scope: Add integration/e2e scenario for watchdog-hang recovery (the remaining unverified failure path). Crash-mid-merge and drift-injection are already covered.
+- Target size: 150-300 LOC, 3-5 files.
+- Why first: closes the last high-risk unverified failure window.
 
 ### PR 2: Watchdog + Forensic E2E Hardening
 
 - Scope: Validate hung process termination behavior and explicit forensic raw-log policy gating in end-to-end orchestration paths.
 - Target size: 250-450 LOC, 5-8 files.
 - Why second: converts current plumbing into operationally proven behavior.
-
-### PR 3: Telemetry Artifact Surfacing
-
-- Scope: Surface provider/merge/gate duration summaries in run artifacts and add assertions.
-- Target size: 200-380 LOC, 4-7 files.
-- Why third: improves diagnosability and makes regressions visible.
-
-### PR 4: SQLite Contention Stress Matrix
-
-- Scope: Add deterministic contention stress harness/tests and wire CI evidence for Linux/Windows contention behavior.
-- Target size: 280-500 LOC, 5-9 files.
-- Why fourth: completes durability evidence for high-concurrency writes.
 
 ## Execution Notes
 
