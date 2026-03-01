@@ -96,9 +96,9 @@ describe("HostExecutor", () => {
   });
 
   describe("networkAllowed", () => {
-    it("always returns true regardless of taskAllowsNetwork", () => {
+    it("returns taskAllowsNetwork correctly", () => {
       expect(executor.networkAllowed(true)).toBe(true);
-      expect(executor.networkAllowed(false)).toBe(true);
+      expect(executor.networkAllowed(false)).toBe(false);
     });
   });
 

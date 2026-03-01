@@ -31,9 +31,8 @@ export class HostExecutor implements SecureExecutor {
     return env;
   }
 
-  public networkAllowed(_taskAllowsNetwork: boolean): boolean {
-    // Host mode cannot reliably enforce network deny, so we allow execution.
-    return true;
+  public networkAllowed(taskAllowsNetwork: boolean): boolean {
+    return taskAllowsNetwork;
   }
 
   public modeName(): string {
