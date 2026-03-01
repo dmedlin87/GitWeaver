@@ -172,7 +172,7 @@ describe("buildInstallPlan", () => {
     });
 
     expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
-    expect(summary.statuses[0]?.issues.some(i => i.includes("Authentication status unknown"))).toBe(true);
+    expect(summary.statuses[0]?.issues.some(i => i.includes("Command execution failed"))).toBe(true);
   });
 
   it("adds specific detail to issues when auth fails with known error", async () => {
@@ -188,7 +188,7 @@ describe("buildInstallPlan", () => {
     });
 
     expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
-    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Authentication status unknown"));
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Command execution failed"));
     expect(issueWithDetail).toBeDefined();
     expect(issueWithDetail).toContain("Exit code 1: Some specific API error");
   });

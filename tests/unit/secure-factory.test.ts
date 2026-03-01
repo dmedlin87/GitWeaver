@@ -16,9 +16,9 @@ describe("createSecureExecutor", () => {
     expect(executor.modeName()).toBe("container");
   });
 
-  it("host executor always allows network", () => {
+  it("host executor honors task network policy", () => {
     const executor = createSecureExecutor("host");
-    expect(executor.networkAllowed(false)).toBe(true);
+    expect(executor.networkAllowed(false)).toBe(false);
     expect(executor.networkAllowed(true)).toBe(true);
   });
 
