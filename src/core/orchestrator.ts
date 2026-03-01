@@ -543,13 +543,22 @@ export class Orchestrator {
         contextPack,
         commandPolicy: task.commandPolicy
       };
+
+      let failureEvidence: string[] | undefined;
+      const targetTaskId = task.type === "repair" && task.dependencies[0] ? task.dependencies[0] : task.taskId;
+      const repairEvents = ctx.db.listRepairEvents(ctx.run.runId, targetTaskId);
+      if (repairEvents.length > 0) {
+        failureEvidence = repairEvents.map((e) => `[Attempt ${e.attempt} - ${e.failureClass}]: ${e.details}`);
+      }
+
       const envelope = buildPromptEnvelope({
         runId: ctx.run.runId,
         task,
         attempt: record.attempts,
         baselineCommit: baseCommit,
         contextPackHash: contextPack.contextPackHash,
-        immutableSections: immutable
+        immutableSections: immutable,
+        failureEvidence
       });
 
       const previousEnvelope = ctx.db.getLatestPromptEnvelope(ctx.run.runId, task.taskId);
@@ -583,7 +592,20 @@ export class Orchestrator {
         contextPackHash: envelope.contextPackHash
       });
 
-      const prompt = this.composeExecutionPrompt(task, envelope, contextPack);
+      const dependenciesState: Record<string, unknown> = {};
+      for (const depId of task.dependencies) {
+        const depTask = taskById.get(depId);
+        const depRecord = stateByTask.get(depId);
+        if (depTask && depRecord) {
+          dependenciesState[depId] = {
+            title: depTask.title,
+            state: depRecord.state,
+            commitHash: depRecord.commitHash
+          };
+        }
+      }
+
+      const prompt = this.composeExecutionPrompt(ctx.run.objective, task, envelope, contextPack, dependenciesState);
       const sandboxHome = await createSandboxHome(ctx.run.runId, task.taskId, task.provider);
       const secureBaseEnv = ctx.secureExecutor.prepareEnvironment(process.env);
       const env = buildSandboxEnv(secureBaseEnv, sandboxHome);
@@ -1112,8 +1134,18 @@ export class Orchestrator {
     };
   }
 
-  private composeExecutionPrompt(task: TaskContract, envelope: ReturnType<typeof buildPromptEnvelope>, contextPack: ReturnType<typeof buildContextPack>): string {
+  private composeExecutionPrompt(
+    runObjective: string,
+    task: TaskContract,
+    envelope: ReturnType<typeof buildPromptEnvelope>,
+    contextPack: ReturnType<typeof buildContextPack>,
+    dependenciesState: Record<string, unknown>
+  ): string {
     return [
+      `## GLOBAL OBJECTIVE`,
+      runObjective,
+      "",
+      `## TASK OBJECTIVE: ${task.title}`,
       "You are executing a bounded task contract for orchestrated coding.",
       "Immutable contract:",
       JSON.stringify(task, null, 2),
@@ -1121,12 +1153,15 @@ export class Orchestrator {
       JSON.stringify(envelope, null, 2),
       "Context pack:",
       JSON.stringify(contextPack, null, 2),
+      "Dependencies State:",
+      JSON.stringify(dependenciesState, null, 2),
       "Rules:",
+      "- Understand the Global Objective to ensure your task aligns with the big picture.",
       "- Only modify files in writeScope.allow and never touch deny paths.",
       "- Produce at least one git commit.",
       "- End with completion marker: __ORCH_DONE__: {\"status\":\"success\",\"files_changed\":[...],\"summary\":\"...\"}",
-      "- Do not change objective or requirements."
-    ].join("\n\n");
+      "- Do not change the overall objective or requirements."
+    ].join("\n");
   }
 
   private resourceKeys(task: TaskContract): string[] {

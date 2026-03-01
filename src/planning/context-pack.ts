@@ -70,7 +70,7 @@ export function buildContextPack(repoPath: string, task: TaskContract, byteBudge
       continue;
     }
 
-    const record = {
+    const record: ContextPack["must"][0] = {
       path: candidate.path,
       sha256: hashFile(repoPath, candidate.path),
       reason: candidate.reason
@@ -79,6 +79,15 @@ export function buildContextPack(repoPath: string, task: TaskContract, byteBudge
     selectedTotalBytes += size;
 
     if (candidate.tier === "must") {
+      try {
+        if (size < 100_000) {
+          record.content = readFileSync(join(repoPath, candidate.path), "utf8");
+        } else {
+          record.content = "<file too large to inline>";
+        }
+      } catch {
+        record.content = "<error reading file>";
+      }
       must.push(record);
       continue;
     }

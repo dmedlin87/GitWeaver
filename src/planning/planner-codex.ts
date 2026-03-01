@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexAdapter } from "../providers/adapters/codex.js";
@@ -123,8 +123,8 @@ const PLANNER_SCHEMA = {
   required: ["nodes", "edges"]
 };
 
-function plannerPrompt(objective: string): string {
-  return [
+function plannerPrompt(objective: string, repoContext: string): string {
+  const lines = [
     "Generate a strict JSON DAG for a heterogeneous coding orchestrator.",
     "Rules:",
     "- Return JSON only.",
@@ -132,7 +132,12 @@ function plannerPrompt(objective: string): string {
     "- Include write scopes and command policy for each task.",
     "- Keep dependencies explicit and acyclic.",
     `Objective: ${objective}`
-  ].join("\n");
+  ];
+  if (repoContext) {
+    lines.push("\nRepository Context:");
+    lines.push(repoContext);
+  }
+  return lines.join("\n");
 }
 
 export function extractJsonPayload(raw: string): unknown {
@@ -189,12 +194,18 @@ export async function generateDagWithCodex(objective: string, cwd: string): Prom
   const schemaPath = join(tmpdir(), `orch-planner-schema-${Date.now()}.json`);
   writeFileSync(schemaPath, JSON.stringify(PLANNER_SCHEMA), "utf8");
 
+  let repoContext = "";
+  try {
+    const pkgJson = readFileSync(join(cwd, "package.json"), "utf8");
+    repoContext += `package.json:\n${pkgJson}\n`;
+  } catch {}
+
   let lastError: Error | undefined;
   let raw = "";
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const result = await adapter.execute({
-      prompt: plannerPrompt(objective),
+      prompt: plannerPrompt(objective, repoContext),
       cwd,
       timeoutMs: 180_000,
       outputSchemaPath: schemaPath

@@ -329,6 +329,26 @@ export class OrchestratorDb {
     });
   }
 
+  public listRepairEvents(runId: string, taskId: string): Array<{ failureClass: string; attempt: number; details: string; createdAt: string }> {
+    return this.withBusyRetry("listRepairEvents", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT failure_class, attempt, details, created_at
+           FROM repair_events
+           WHERE run_id = ? AND task_id = ?
+           ORDER BY created_at ASC`
+        )
+        .all(runId, taskId) as Array<{ failure_class: string; attempt: number; details: string; created_at: string }>;
+
+      return rows.map((row) => ({
+        failureClass: row.failure_class,
+        attempt: row.attempt,
+        details: row.details,
+        createdAt: row.created_at
+      }));
+    });
+  }
+
   public upsertProviderHealth(runId: string, snapshot: ProviderHealthSnapshot): void {
     this.withBusyRetry("upsertProviderHealth", () => {
       this.db

@@ -56,7 +56,7 @@ export interface PromptEnvelope {
 
 export interface ContextPack {
   taskId: string;
-  must: Array<{ path: string; sha256: string; reason: string }>;
+  must: Array<{ path: string; sha256: string; reason: string; content?: string }>;
   should: Array<{ path: string; sha256: string; reason: string }>;
   optional: Array<{ path: string; sha256: string; reason: string }>;
   byteBudget: number;
