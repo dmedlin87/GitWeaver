@@ -80,6 +80,51 @@ describe("resume reconciliation integration", () => {
     expect(decision.driftCommits).toEqual([]);
   });
 
+  it("emits RESUME_DB_LAG when git is merged but event log and DB lag", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    writeFileSync(join(repo, "file.txt"), "hello lag\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-lag\nORCH_TASK_ID=task-lag"]);
+
+    const run: RunRecord = {
+      runId: "run-lag",
+      objective: "lag check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-lag",
+        provider: "claude",
+        type: "code",
+        state: "RUNNING",
+        attempts: 1,
+        contractHash: "hash-lag"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events: []
+    });
+
+    expect(decision.mergedTaskIds).toContain("task-lag");
+    expect(decision.reasons["task-lag"]).toBe("RESUME_DB_LAG");
+  });
+
   it("does not flag drift when commits after baseline belong to the same run", async () => {
     const repo = makeTempDir();
     initGitRepo(repo);

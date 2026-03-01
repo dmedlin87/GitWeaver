@@ -87,4 +87,23 @@ describe("persistence integration", () => {
 
     db.close();
   });
+
+  it("ignores partial event log writes during recovery", async () => {
+    const root = makeTempDir();
+    const eventPath = join(root, "events.ndjson");
+
+    const log1 = new EventLog(eventPath);
+    log1.append("run-1", "TASK_READY", { taskId: "task-1" });
+
+    // Simulate partial write appended to file
+    const fs = await import("node:fs");
+    fs.appendFileSync(eventPath, '{"seq":2,"runId":"run-1","ts":"2023-01-01T00:00:00.000Z","type":"TASK_RUNNING","payload":{"taskId":"task-', "utf8");
+
+    const log2 = new EventLog(eventPath);
+    const events = log2.readAll();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.seq).toBe(1);
+    expect(events[0]?.type).toBe("TASK_READY");
+  });
 });
