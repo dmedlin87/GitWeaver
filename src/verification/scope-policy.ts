@@ -14,12 +14,16 @@ function normalizeForComparison(path: string): string {
 }
 
 function canonicalize(repoRoot: string, inputPath: string): string | null {
-  const absolute = isAbsolute(inputPath) ? inputPath : join(repoRoot, inputPath);
+  const absolute = isAbsolute(inputPath)
+    ? inputPath
+    : join(repoRoot, inputPath);
   const normalized = normalize(absolute);
 
   let real: string;
   try {
-    real = existsSync(normalized) ? realpathSync(normalized) : normalize(normalized);
+    real = existsSync(normalized)
+      ? realpathSync(normalized)
+      : normalize(normalized);
   } catch {
     real = normalize(normalized);
   }
@@ -36,7 +40,7 @@ export function evaluateScope(
   repoRoot: string,
   changedFiles: string[],
   allowPatterns: string[],
-  denyPatterns: string[]
+  denyPatterns: string[],
 ): ScopeEvaluation {
   const violations: string[] = [];
   const normalizedFiles: string[] = [];
@@ -46,13 +50,19 @@ export function evaluateScope(
   // 🎯 Why: minimatch() parses the pattern string every time it's called. For N files and M patterns, this is N*M parses.
   // 📊 Impact: O(M) compilation instead of O(N*M), yielding ~3-5x speedup for large commit evaluations.
   const nocase = process.platform === "win32";
-  const compiledDeny = denyPatterns.map((p) => new Minimatch(p, { dot: true, nocase }));
-  const compiledAllow = allowPatterns.map((p) => new Minimatch(p, { dot: true, nocase }));
+  const compiledDeny = denyPatterns.map(
+    (p) => new Minimatch(p, { dot: true, nocase }),
+  );
+  const compiledAllow = allowPatterns.map(
+    (p) => new Minimatch(p, { dot: true, nocase }),
+  );
 
   for (const file of changedFiles) {
     const canonical = canonicalize(repoRoot, file);
     if (!canonical) {
-      violations.push(`${file}: path escapes repository root or symlink target is external`);
+      violations.push(
+        `${file}: path escapes repository root or symlink target is external`,
+      );
       continue;
     }
 
@@ -71,6 +81,6 @@ export function evaluateScope(
   return {
     allowed: violations.length === 0,
     violations,
-    normalizedFiles
+    normalizedFiles,
   };
 }
