@@ -211,6 +211,52 @@ describe("Orchestrator Policy Enforcement", () => {
     }
   });
 
+  it("rejects entering MERGE_QUEUED if lease token expires", async () => {
+    const task = {
+      taskId: "task-lease-expire",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny",
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false,
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash",
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+
+    // Create a LockManager where validateFencing explicitly returns false
+    const failingLockManager = new LockManager(1000);
+    vi.spyOn(failingLockManager, "validateFencing").mockReturnValue(false);
+
+    await expect(
+      orchestrator.executeTask(
+        ctx,
+        task,
+        record,
+        failingLockManager,
+        new LeaseHeartbeat(failingLockManager, 1000),
+        new MergeQueue(),
+        new WorktreeManager(),
+        { increment: () => 1, allowed: () => false },
+        new Map(),
+        new Map(),
+        new Map(),
+      ),
+    ).rejects.toMatchObject({
+      reasonCode: REASON_CODES.LOCK_TIMEOUT,
+    });
+  });
+
   it("rejects gate command not in allowlist", async () => {
     const task = {
       taskId: "task-bad-gate",

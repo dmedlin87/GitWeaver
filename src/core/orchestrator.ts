@@ -886,6 +886,13 @@ export class Orchestrator {
 
       record.state = "SCOPE_PASSED";
       ctx.db.upsertTask(record);
+
+      for (const lease of leases) {
+        if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
+          throw this.errorWithCode(`Fencing token expired before queuing merge for ${task.taskId}`, REASON_CODES.LOCK_TIMEOUT);
+        }
+      }
+
       record.state = "MERGE_QUEUED";
       ctx.db.upsertTask(record);
       ctx.events.append(ctx.run.runId, "TASK_MERGE_QUEUED", { taskId: task.taskId, commitHash });
