@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { Orchestrator, printJson, type ProgressUpdate } from "../../core/orchestrator.js";
 import { maybeBootstrapRepo, type BootstrapTemplate } from "../repo-bootstrap.js";
+import type { ProviderId } from "../../core/types.js";
 
 interface RunOptions {
   concurrency?: number;
@@ -13,6 +14,7 @@ interface RunOptions {
   executionMode?: "host" | "container";
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
+  plannerProvider?: ProviderId;
   installMissing?: "prompt" | "never" | "auto";
   upgradeProviders?: "warn" | "never" | "prompt" | "required";
   nonInteractive?: boolean;
@@ -35,6 +37,7 @@ export function registerRunCommand(program: Command): void {
     .option("--execution-mode <mode>", "host|container")
     .option("--container-runtime <runtime>", "docker|podman")
     .option("--container-image <image>", "container image for provider/gate execution")
+    .option("--planner-provider <provider>", "codex|claude|gemini", parsePlannerProvider)
     .option("--install-missing <mode>", "prompt|never|auto", "prompt")
     .option("--upgrade-providers <mode>", "warn|never|prompt|required", "warn")
     .option("--non-interactive", "disable interactive prompts")
@@ -79,6 +82,7 @@ export function registerRunCommand(program: Command): void {
         executionMode: opts.executionMode,
         containerRuntime: opts.containerRuntime,
         containerImage: opts.containerImage,
+        plannerProvider: opts.plannerProvider,
         dryRunReport: opts.dryRunReport,
         installMissing: opts.installMissing,
         upgradeProviders: opts.upgradeProviders,
@@ -116,4 +120,11 @@ function parseBootstrapTemplate(value: string): BootstrapTemplate {
     return value;
   }
   throw new Error(`Invalid bootstrap template: ${value}`);
+}
+
+function parsePlannerProvider(value: string): ProviderId {
+  if (value === "codex" || value === "claude" || value === "gemini") {
+    return value;
+  }
+  throw new Error(`Invalid planner provider: ${value}`);
 }

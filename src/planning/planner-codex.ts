@@ -1,15 +1,20 @@
 import { writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GeminiAdapter } from "../providers/adapters/gemini.js";
+import { getProviderAdapter } from "../providers/adapters/index.js";
 import { validateDag } from "./dag-schema.js";
-import type { DagSpec, TaskContract } from "../core/types.js";
+import type { DagSpec, ProviderId, TaskContract } from "../core/types.js";
 import { REASON_CODES } from "../core/reason-codes.js";
 
 export interface PlannerResult {
   dag: DagSpec;
   rawResponse: string;
   retries: number;
+  plannerProvider?: ProviderId;
+}
+
+export interface PlannerOptions {
+  plannerProvider?: ProviderId;
 }
 
 const PLANNER_SCHEMA = {
@@ -144,7 +149,38 @@ function plannerPrompt(objective: string, repoContext: string, pendingTasks?: Ta
   return lines.join("\n");
 }
 
+function plannerProviderOrder(objective: string, options: PlannerOptions = {}): ProviderId[] {
+  if (options.plannerProvider) {
+    return [options.plannerProvider];
+  }
+
+  const normalized = objective.toLowerCase();
+  const docsFocused = /\b(doc|docs|readme|changelog|comment|guide|wiki)\b/u.test(normalized);
+  if (docsFocused) {
+    return ["claude", "codex"];
+  }
+
+  return ["codex", "claude"];
+}
+
 export function extractJsonPayload(raw: string): unknown {
+  const unwrapEventPayload = (value: unknown): unknown => {
+    if (value && typeof value === "object" && (value as { type?: unknown }).type === "item.completed") {
+      const item = (value as { item?: unknown }).item;
+      if (item && typeof item === "object" && (item as { type?: unknown }).type === "agent_message") {
+        const text = (item as { text?: unknown }).text;
+        if (typeof text === "string") {
+          try {
+            return JSON.parse(text);
+          } catch {
+            return value;
+          }
+        }
+      }
+    }
+    return value;
+  };
+
   // 1. Try to find JSON inside markdown code blocks
   const markdownRegex = /```(?:json)?\s*([\s\S]*?)```/g;
   const matches = [...raw.matchAll(markdownRegex)];
@@ -154,7 +190,7 @@ export function extractJsonPayload(raw: string): unknown {
       if (inner && typeof inner === "object" && typeof (inner as any).response === "string") {
         return extractJsonPayload((inner as any).response);
       }
-      return inner;
+      return unwrapEventPayload(inner);
     } catch {
       // Continue searching
     }
@@ -170,7 +206,7 @@ export function extractJsonPayload(raw: string): unknown {
       if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
         return extractJsonPayload((parsed as any).response);
       }
-      return parsed;
+      return unwrapEventPayload(parsed);
     } catch {
       // Continue to line-by-line
     }
@@ -215,7 +251,7 @@ export function extractJsonPayload(raw: string): unknown {
       if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
         return extractJsonPayload((parsed as any).response);
       }
-      return parsed;
+      return unwrapEventPayload(parsed);
     } catch {
       continue;
     }
@@ -226,7 +262,7 @@ export function extractJsonPayload(raw: string): unknown {
     if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
       return extractJsonPayload((parsed as any).response);
     }
-    return parsed;
+    return unwrapEventPayload(parsed);
   } catch {
     console.error("DEBUG: Failed to parse planner output as JSON. Length:", raw.length);
     if (raw.length > 0) {
@@ -237,8 +273,12 @@ export function extractJsonPayload(raw: string): unknown {
   }
 }
 
-export async function generateDagWithCodex(objective: string, cwd: string, pendingTasks?: TaskContract[]): Promise<PlannerResult> {
-  const adapter = new GeminiAdapter();
+export async function generateDagWithCodex(
+  objective: string,
+  cwd: string,
+  pendingTasks?: TaskContract[],
+  options: PlannerOptions = {}
+): Promise<PlannerResult> {
   const schemaPath = join(tmpdir(), `orch-planner-schema-${Date.now()}.json`);
   writeFileSync(schemaPath, JSON.stringify(PLANNER_SCHEMA), "utf8");
 
@@ -250,36 +290,42 @@ export async function generateDagWithCodex(objective: string, cwd: string, pendi
 
   let lastError: Error | undefined;
   let raw = "";
+  const providers = plannerProviderOrder(objective, options);
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    process.stdout.write(`Planning attempt ${attempt}/3...\n`);
+  for (let attempt = 1; attempt <= providers.length; attempt += 1) {
+    const provider = providers[attempt - 1]!;
+    const adapter = getProviderAdapter(provider);
+    process.stdout.write(`Planning attempt ${attempt}/${providers.length} with ${provider}...\n`);
     const result = await adapter.execute({
       prompt: plannerPrompt(objective, repoContext, pendingTasks),
       cwd,
       timeoutMs: 180_000,
-      executionMode: "host"
+      executionMode: "host",
+      ...(provider === "codex" ? { outputSchemaPath: schemaPath } : {})
     });
 
     raw = result.stdout;
 
     if (result.exitCode !== 0) {
       process.stdout.write(`Attempt ${attempt} failed with exit code ${result.exitCode}.\n`);
-      lastError = new Error(`Planner command failed (attempt ${attempt}): ${result.stderr || result.stdout}`);
+      lastError = new Error(`Planner provider ${provider} failed (attempt ${attempt}): ${result.stderr || result.stdout}`);
       continue;
     }
 
     try {
       const parsed = extractJsonPayload(raw);
       const dag = validateDag(parsed);
-      process.stdout.write(`Plan generated successfully on attempt ${attempt}.\n`);
-      return { dag, rawResponse: raw, retries: attempt - 1 };
+      process.stdout.write(`Plan generated successfully on attempt ${attempt} with ${provider}.\n`);
+      return { dag, rawResponse: raw, retries: attempt - 1, plannerProvider: provider };
     } catch (error) {
       process.stdout.write(`Attempt ${attempt} failed schema validation: ${(error as Error).message}\n`);
       lastError = error as Error;
     }
   }
 
-  const failure = new Error(`Planner failed after retries: ${lastError?.message ?? REASON_CODES.PLAN_PROVIDER_FAILED}`);
+  const failure = new Error(
+    `Planner failed after trying providers (${providers.join(", ")}): ${lastError?.message ?? REASON_CODES.PLAN_PROVIDER_FAILED}`
+  );
   (failure as Error & { reasonCode?: string }).reasonCode = REASON_CODES.PLAN_SCHEMA_INVALID;
   throw failure;
 }

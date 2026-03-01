@@ -78,6 +78,12 @@ Or in dev mode from the GitWeaver directory:
 pnpm dev run "Add error handling to all API endpoints" --repo /path/to/your/project
 ```
 
+Planner selection defaults to automatic Codex/Claude routing. To force a specific planner:
+
+```bash
+orchestrator run "Add error handling to all API endpoints" --planner-provider codex
+```
+
 ## One-Command New Repo Bootstrap
 
 If you want to start from a brand-new folder, `run` can bootstrap the repo first:

@@ -2,13 +2,28 @@ import type { ProviderHealthSnapshot, ProviderId, RoutingDecision, TaskType } fr
 
 const FALLBACK_ORDER: Record<ProviderId, ProviderId[]> = {
   gemini: ["claude", "codex"],
-  claude: ["gemini", "codex"],
-  codex: ["gemini", "claude"]
+  claude: ["codex", "gemini"],
+  codex: ["claude", "gemini"]
 };
 
 function preferredProvider(type: TaskType): { provider: ProviderId; reason: string } {
-  // Overriding to Gemini for now due to environment issues with Claude/Codex
-  return { provider: "gemini", reason: "task type prefers Gemini for high reliability in current environment" };
+  switch (type) {
+    case "code":
+    case "refactor":
+    case "ui":
+    case "multimodal":
+      return { provider: "claude", reason: "task type prefers Claude for implementation-heavy work" };
+    case "test":
+    case "repair":
+    case "audit":
+      return { provider: "codex", reason: "task type prefers Codex for deterministic verification and repair loops" };
+    case "docs":
+    case "deps":
+    case "plan":
+      return { provider: "claude", reason: "task type prefers Claude for planning and documentation synthesis" };
+    default:
+      return { provider: "claude", reason: "default provider preference is Claude" };
+  }
 }
 
 function providerHealthy(health: ProviderHealthSnapshot | undefined): boolean {

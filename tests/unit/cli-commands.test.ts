@@ -169,6 +169,16 @@ describe("run command", () => {
     expect(orchestratorMock.run.mock.calls[0]![0].concurrency).toBe(4);
   });
 
+  it("passes --planner-provider option", async () => {
+    orchestratorMock.run.mockResolvedValue({ runId: "r1", state: "COMPLETED", summary: {} });
+
+    const program = makeProgram();
+    registerRunCommand(program);
+    await parseAsync(program, ["run", "test", "--planner-provider", "codex"]);
+
+    expect(orchestratorMock.run.mock.calls[0]![0].plannerProvider).toBe("codex");
+  });
+
   it("throws when --concurrency is not a valid integer", async () => {
     const program = makeProgram();
     registerRunCommand(program);
@@ -181,6 +191,14 @@ describe("run command", () => {
     await expect(
       parseAsync(program, ["run", "test", "--bootstrap-template", "unknown-template"])
     ).rejects.toThrow("Invalid bootstrap template");
+  });
+
+  it("throws when --planner-provider has an invalid value", async () => {
+    const program = makeProgram();
+    registerRunCommand(program);
+    await expect(
+      parseAsync(program, ["run", "test", "--planner-provider", "invalid"])
+    ).rejects.toThrow("Invalid planner provider");
   });
 
   it("prints JSON output when --json flag is set", async () => {

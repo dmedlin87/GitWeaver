@@ -38,6 +38,7 @@ orchestrator run "<prompt>" [options]
 | `--execution-mode <mode>` | `host` \| `container` | `host` | Provider execution environment |
 | `--container-runtime <rt>` | `docker` \| `podman` | `docker` | Container runtime |
 | `--container-image <img>` | string | `ghcr.io/dmedlin87/gitweaver-runtime:latest` | Container image |
+| `--planner-provider <provider>` | `codex` \| `claude` \| `gemini` | `auto` | Override planner provider selection |
 | `--install-missing <mode>` | `prompt` \| `never` \| `auto` | `prompt` | Auto-install missing providers |
 | `--upgrade-providers <mode>` | `warn` \| `never` \| `prompt` \| `required` | `warn` | Provider upgrade behavior |
 | `--non-interactive` | boolean | false | Disable interactive prompts |
@@ -54,6 +55,9 @@ orchestrator run "Refactor payment module" --concurrency 6 --config ./config.jso
 
 # Dry run with detailed report
 orchestrator run "Migrate to ESM" --dry-run --dry-run-report detailed
+
+# Force planner provider (useful for debugging/provider outages)
+orchestrator run "Refactor payment module" --planner-provider codex
 
 # Bootstrap a new repository and run immediately
 orchestrator run "Build a snake game in TypeScript with tests" --repo C:\Users\you\Projects\snake-game --bootstrap --bootstrap-template web-game-ts

@@ -93,7 +93,7 @@ This creates the target folder (if needed), initializes git, scaffolds starter f
 
 | Command | Description |
 | :--- | :--- |
-| `orchestrator run "<prompt>"` | Start a new workflow. Custom flags: `--concurrency N`, `--dry-run`, `--dry-run-report basic\|detailed`, `--execution-mode host\|container`, `--container-runtime docker\|podman`, `--container-image <image>`, `--config path`, `--repo path`, `--bootstrap`, `--bootstrap-template blank\|web-game-ts`, `--allow-baseline-repair`, `--accept-drift` |
+| `orchestrator run "<prompt>"` | Start a new workflow. Custom flags: `--concurrency N`, `--dry-run`, `--dry-run-report basic\|detailed`, `--execution-mode host\|container`, `--container-runtime docker\|podman`, `--container-image <image>`, `--planner-provider codex\|claude\|gemini`, `--config path`, `--repo path`, `--bootstrap`, `--bootstrap-template blank\|web-game-ts`, `--allow-baseline-repair`, `--accept-drift` |
 | `orchestrator resume <run-id>` | Resume an existing run. Flag: `--accept-drift` |
 | `orchestrator status <run-id>` | Check run status (`--json` supported) |
 | `orchestrator inspect <run-id>` | Inspect run details (`--task <id>`, `--json`) |

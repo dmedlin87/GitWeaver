@@ -55,6 +55,7 @@ export interface RunCliOptions extends PreflightOptions {
   executionMode?: "host" | "container";
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
+  plannerProvider?: ProviderId;
   onProgress?: (update: ProgressUpdate) => void;
 }
 
@@ -486,7 +487,9 @@ export class Orchestrator {
           `Agent Research:\n${ctx.run.replanEvidence?.research || "N/A"}`
         ].join("\n\n");
 
-        const deltaResult = await generateDagWithCodex(replanObjective, ctx.run.repoPath, pendingContracts);
+        const deltaResult = await generateDagWithCodex(replanObjective, ctx.run.repoPath, pendingContracts, {
+          plannerProvider: options.plannerProvider
+        });
         const planned = deltaResult.dag;
 
         // Apply routing and audit to the new tasks
@@ -1116,7 +1119,8 @@ export class Orchestrator {
 
   private async preflightStageA(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
     this.progress(ctx, "preflight_a_start", "Preflight stage A starting");
-    const preflight = await runPreflight(["codex"], options);
+    const plannerProviders: ProviderId[] = options.plannerProvider ? [options.plannerProvider] : ["codex", "claude"];
+    const preflight = await runPreflight(plannerProviders, options);
     this.recordProviderVersions(ctx, preflight.statuses);
     ctx.events.append(ctx.run.runId, "PREFLIGHT_STAGE_A", {
       statuses: preflight.statuses,
@@ -1124,8 +1128,11 @@ export class Orchestrator {
       reasonCodes: preflight.reasonCodes
     });
     this.progress(ctx, "preflight_a_done", "Preflight stage A completed");
-    if (preflight.reasonCodes.length > 0) {
-      throw this.errorWithCode("Preflight stage A failed", preflight.reasonCodes[0] ?? REASON_CODES.ABORTED_POLICY);
+
+    const plannerReady = preflight.statuses.some((status) => status.installed && status.authStatus === "OK");
+    if (!plannerReady) {
+      const reasonCode = preflight.reasonCodes[0] ?? REASON_CODES.PROVIDER_MISSING;
+      throw this.errorWithCode("Preflight stage A failed: no ready planner provider", reasonCode);
     }
   }
 
@@ -1187,7 +1194,9 @@ export class Orchestrator {
     this.progress(ctx, "plan_start", "Generating and auditing DAG");
     const planned = options.dryRun
       ? this.mockDag(options.prompt)
-      : (await generateDagWithCodex(options.prompt, ctx.run.repoPath)).dag;
+      : (await generateDagWithCodex(options.prompt, ctx.run.repoPath, undefined, {
+          plannerProvider: options.plannerProvider
+        })).dag;
 
     const healthSnapshots = ctx.providerHealth.snapshotAll();
     const routeDecisions: TaskRoutingDecision[] = [];
