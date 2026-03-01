@@ -108,7 +108,7 @@ export function buildContextPack(repoPath: string, task: TaskContract, byteBudge
     contextPackHash: ""
   };
 
-  pack.contextPackHash = sha256(stableStringify(pack));
+  pack.contextPackHash = sha256(stableStringify({ ...pack, contextPackHash: undefined }));
   return pack;
 }
 
