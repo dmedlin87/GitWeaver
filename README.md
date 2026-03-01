@@ -135,6 +135,10 @@ pnpm build
 pnpm test
 ```
 
+Or run `pnpm validate` to execute all three validation steps in sequence.
+
+You can also run `pnpm check` as a short alias for `pnpm validate`.
+
 <details>
 <summary><b>🛡️ Continuous Integration</b></summary>
 <br/>

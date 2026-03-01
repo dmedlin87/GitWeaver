@@ -167,14 +167,40 @@ describe('Prompt Integrity & Determinism', () => {
   });
 
   describe('Prompt Drift Assertion', () => {
+    it('should throw on taskId drift', () => {
+      const env1 = { taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      const env2 = { taskId: 't2', runId: 'r1', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      expect(() => assertPromptDrift(env1, env2)).toThrow(/taskId drift/);
+    });
+
+    it('should throw on runId drift', () => {
+      const env1 = { taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      const env2 = { taskId: 't1', runId: 'r2', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      expect(() => assertPromptDrift(env1, env2)).toThrow(/runId drift/);
+    });
+
+    it('should throw on provider drift', () => {
+      const env1 = { taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      const env2 = { taskId: 't1', runId: 'r1', provider: 'p2', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      expect(() => assertPromptDrift(env1, env2)).toThrow(/provider drift/);
+    });
+
+    it('should throw on baselineCommit drift', () => {
+      const env1 = { taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      const env2 = { taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c2', immutableSectionsHash: 'hashA', taskContractHash: 'hashB', contextPackHash: 'hashC' } as PromptEnvelope;
+      expect(() => assertPromptDrift(env1, env2)).toThrow(/baselineCommit drift/);
+    });
+
     it('should throw on immutable section drift', () => {
       const env1 = {
+        taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1',
         immutableSectionsHash: 'hashA',
         taskContractHash: 'hashB',
         contextPackHash: 'hashC'
       } as PromptEnvelope;
 
       const env2 = {
+        taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1',
         immutableSectionsHash: 'hashZ', // Changed
         taskContractHash: 'hashB',
         contextPackHash: 'hashC'
@@ -185,6 +211,7 @@ describe('Prompt Integrity & Determinism', () => {
 
     it('should allow mutable section changes', () => {
       const env1 = {
+        taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1',
         immutableSectionsHash: 'hashA',
         taskContractHash: 'hashB',
         contextPackHash: 'hashC',
@@ -192,6 +219,7 @@ describe('Prompt Integrity & Determinism', () => {
       } as PromptEnvelope;
 
       const env2 = {
+        taskId: 't1', runId: 'r1', provider: 'p1', baselineCommit: 'c1',
         immutableSectionsHash: 'hashA',
         taskContractHash: 'hashB',
         contextPackHash: 'hashC',
