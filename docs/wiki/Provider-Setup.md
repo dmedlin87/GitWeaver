@@ -2,6 +2,8 @@
 
 GitWeaver orchestrates tasks across three AI provider CLIs. At least one must be installed and authenticated for orchestration to work.
 
+For a quick side-by-side behavior map used by agents and adapters, see [Provider CLI Comparison](./Provider-CLI-Comparison.md).
+
 ## Supported Providers
 
 | Provider | npm Package | CLI Binary | Purpose |

@@ -146,6 +146,10 @@ CI runs the exact same validation pipeline via <code>.github/workflows/ci.yml</c
 - [Roadmap](./ROADMAP.md)
 - [Agent Guidance](./AGENTS.md)
 - [Claude Handoff](./CLAUDE.md)
+- [Provider CLI Comparison](./docs/wiki/Provider-CLI-Comparison.md)
+- [Codex CLI Reference](./docs/wiki/Codex-CLI-Reference.md)
+- [Claude Code CLI Reference](./docs/wiki/Claude-Code-CLI-Reference.md)
+- [Gemini CLI Reference](./docs/wiki/Gemini-CLI-Reference.md)
 
 ---
 

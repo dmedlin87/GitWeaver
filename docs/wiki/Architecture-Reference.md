@@ -170,10 +170,10 @@ Logging, metrics, and output management.
 
 ```
 tests/
-  unit/          26 test files — module-level behavior and edge cases
-  integration/   4 test files  — resume reconciliation, persistence workflows
-  e2e/           1 test file   — full CLI workflows
-  benchmark/     2 test files  — worktree creation perf, DB loop perf
+  unit/          55 test files — module-level behavior and edge cases
+  integration/   6 test files  — resume reconciliation, persistence workflows
+  e2e/           2 test files  — full CLI workflows
+  benchmark/     1 test file   — worktree creation perf
 ```
 
 Tests follow the naming convention `<module>.test.ts` and are colocated under the appropriate test directory.

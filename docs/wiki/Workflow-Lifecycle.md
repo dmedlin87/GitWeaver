@@ -103,9 +103,8 @@ interface DagSpec {
 interface TaskContract {
   taskId: string;
   title: string;
-  objective: string;
-  type: "code" | "refactor" | "test" | "docs" | "config" | "repair";
-  provider: "codex" | "claude" | "gemini";
+  provider: ProviderId;
+  type: "code" | "refactor" | "test" | "docs" | "deps" | "repair";
   dependencies: string[];
   writeScope: {
     allow: string[];
@@ -118,11 +117,21 @@ interface TaskContract {
     deny: string[];
     network: "deny" | "allow";
   };
-  outputContract?: {
-    exports?: string[];
-    testFilePattern?: string;
+  expected: {
+    files?: string[];
+    exports?: { file: string; name: string; kind: "function" | "class" | "type" | "interface" | "const" }[];
+    tests?: { file: string; contains?: string }[];
   };
-  outputVerificationRequired: boolean;
+  verify: {
+    gateCommand?: string;
+    gateTimeoutSec?: number;
+    outputVerificationRequired: boolean;
+  };
+  artifactIO: {
+    consumes?: string[];
+    produces?: string[];
+  };
+  contractHash: string;
 }
 ```
 

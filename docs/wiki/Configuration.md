@@ -101,6 +101,11 @@ The sum of all provider buckets should not exceed `concurrencyCap`.
 | `executionMode` | `"host"` \| `"container"` | `"host"` | Where providers run. Host = child process. Container = Docker/Podman. |
 | `containerRuntime` | `"docker"` \| `"podman"` | `"docker"` | Container runtime (only used when `executionMode` is `"container"`) |
 | `containerImage` | string | `"ghcr.io/dmedlin87/gitweaver-runtime:latest"` | Image to use for container execution |
+| `containerMemoryMb` | number | `2048` | Memory limit (MiB) for containers |
+| `containerCpuLimit` | number | `2` | CPU core limit for containers |
+| `containerRunAsUser` | string | `"65532:65532"` | UID:GID for non-root container execution |
+| `containerDropCapabilities` | boolean | `true` | Drop all Linux capabilities for security |
+| `containerReadOnlyRootfs` | boolean | `false` | Set container root filesystem to read-only |
 
 ### Scheduling & Leases
 
@@ -108,6 +113,8 @@ The sum of all provider buckets should not exceed `concurrencyCap`.
 |--------|------|---------|-------------|
 | `leaseDurationSec` | number | `120` | Duration (seconds) for write lock leases |
 | `leaseRenewSec` | number | `30` | Interval (seconds) for lease renewal heartbeats |
+| `lockContentionRetryMax` | number | `4` | Maximum retries on lock acquisition failure |
+| `lockContentionBackoffMs` | number | `75` | Base backoff (ms) between lock retries |
 | `heartbeatTimeoutSec` | number | `60` | Timeout (seconds) for provider execution heartbeat |
 | `terminateGraceSec` | number | `10` | Grace period (seconds) before SIGKILL on termination |
 

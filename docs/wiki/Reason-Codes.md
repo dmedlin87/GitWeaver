@@ -92,8 +92,11 @@ Issues detected during run resume and state reconciliation.
 | Code | Description |
 |------|-------------|
 | `RESUME_AMBIGUOUS_STATE` | Conflicting evidence between persistence layers |
+| `RESUME_CRASH_RECOVERY` | Task was running when the system crashed and has been requeued |
 | `RESUME_DB_LAG` | SQLite state lagged behind the event log |
 | `RESUME_DRIFT_REQUIRES_ACCEPT` | Baseline has drifted; `--accept-drift` required to continue |
+| `RESUME_ESCALATED_DB` | Task was already escalated in the database |
+| `RESUME_ESCALATED_EVENT_LOG` | Task was already escalated in the event log |
 | `RESUME_MERGE_IN_FLIGHT` | A merge was in progress when the run crashed |
 | `RESUME_MISSING_COMMIT` | Database records a merge but the commit is not in git history |
 

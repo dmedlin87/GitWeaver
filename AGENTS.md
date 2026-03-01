@@ -120,3 +120,16 @@ As of 2026-02-28, `ROADMAP.md` reports no open canonical gaps.
 - `docs/cli_driven_heterogeneous_orchestrator_prd_technical_architecture_v_2_revised_final.md`
   is the canonical PRD/architecture spec.
 - `ROADMAP.md` tracks the delta between the PRD and current implementation.
+
+## Provider CLI References (Agent Handoff)
+
+- Start with `docs/wiki/Provider-CLI-Comparison.md` for explicit Codex vs Claude vs Gemini command and output differences in GitWeaver.
+- Deep references:
+  - `docs/wiki/Codex-CLI-Reference.md`
+  - `docs/wiki/Claude-Code-CLI-Reference.md`
+  - `docs/wiki/Gemini-CLI-Reference.md`
+- For implementation-truth command wiring, verify against:
+  - `src/providers/adapters/codex.ts`
+  - `src/providers/adapters/claude.ts`
+  - `src/providers/adapters/gemini.ts`
+  - `src/providers/registry.ts`
