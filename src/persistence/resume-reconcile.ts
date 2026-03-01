@@ -83,7 +83,7 @@ function resolveResumeEvidence(
   eventState: EventTaskState | undefined
 ): { action: "merged" | "requeue" | "escalate" | "ignore"; reasonCode?: string } {
   if (mergedSet.has(taskId)) {
-    if (!isMergedLike(dbTask?.state)) {
+    if (!isMergedLike(dbTask?.state) || !isMergedLike(eventState?.state)) {
       return { action: "merged", reasonCode: REASON_CODES.RESUME_DB_LAG };
     }
     return { action: "merged" };
