@@ -16,6 +16,8 @@
     "doctor:install": "node scripts/fix-local-install.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+    ,
+    "validate": "pnpm typecheck && pnpm build && pnpm test"
   },
   "dependencies": {
     "commander": "^14.0.2",
