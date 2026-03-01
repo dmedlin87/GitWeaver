@@ -4,7 +4,7 @@ export class MergeQueue {
   public enqueue<T>(job: () => Promise<T>, validate?: () => boolean): Promise<T> {
     const run = async (): Promise<T> => {
       if (validate && !validate()) {
-        throw new Error("Stale lease: validation failed before execution");
+        return Promise.reject(new Error("Stale lease: validation failed before execution"));
       }
       return job();
     };

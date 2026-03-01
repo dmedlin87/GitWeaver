@@ -16,7 +16,7 @@ export class LockManager {
 
   public tryAcquireWrite(resourceKeys: string[], ownerTaskId: string): LockLease[] | null {
     const now = Date.now();
-    const orderedKeys = [...resourceKeys].sort((a, b) => a.localeCompare(b));
+    const orderedKeys = [...new Set(resourceKeys)].sort((a, b) => a.localeCompare(b));
 
     for (const key of orderedKeys) {
       const existing = this.leasesByKey.get(key);
