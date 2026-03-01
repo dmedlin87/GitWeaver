@@ -17,7 +17,7 @@ export function parseCompletionMarker(output: string): CompletionMarker | null {
     const payload = line.slice(idx + MARKER_PREFIX.length).trim();
     try {
       const parsed = JSON.parse(payload) as CompletionMarker;
-      if (parsed.status === "success" || parsed.status === "fail") {
+      if (parsed.status === "success" || parsed.status === "fail" || parsed.status === "replan") {
         return parsed;
       }
     } catch {

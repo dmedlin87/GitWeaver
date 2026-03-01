@@ -568,9 +568,29 @@ export class Orchestrator {
             ctx.db.upsertTask(newRecord);
             scheduler.add(newNode);
           } else {
-            // If it existed but was still pending, update the contract in case planner changed it
-            // (e.g. changed dependencies or write scope)
-            scheduler.updateContract(newNode);
+            // Task already existed.
+            const record = stateByTask.get(newNode.taskId);
+            
+            // If it wasn't terminal (e.g. it was the task that requested replan, 
+            // or it was READY/RUNNING when replan started), reset it to PENDING 
+            // so the scheduler can re-evaluate its dependencies.
+            if (record && !this.isTerminalTaskState(record.state)) {
+              record.state = "PENDING";
+              ctx.db.upsertTask(record);
+              
+              // If it's already in the scheduler queue, update its contract.
+              // Otherwise, add it back to the queue.
+              if (scheduler.listPending().includes(newNode.taskId)) {
+                scheduler.updateContract(newNode);
+              } else {
+                scheduler.add(newNode);
+              }
+            } else {
+              // If it was terminal (VERIFIED), just update the contract stored in taskById 
+              // (already done above) but don't re-schedule.
+              // If it was already in scheduler (shouldn't happen if terminal), update it.
+              scheduler.updateContract(newNode);
+            }
           }
           
           const deps = newNode.dependencies ?? [];
@@ -1007,6 +1027,12 @@ export class Orchestrator {
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
       const errorText = (error as Error).message;
+
+      // If it's a replan request, bubble it up to the DAG execution loop immediately.
+      if (reasonCode === REASON_CODES.REPLAN_REQUESTED) {
+        throw error;
+      }
+
       if (reasonCode === REASON_CODES.EXEC_FAILED || reasonCode === REASON_CODES.AUTH_MISSING) {
         this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(task.provider, errorText));
       }
