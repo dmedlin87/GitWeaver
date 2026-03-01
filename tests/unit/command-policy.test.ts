@@ -41,7 +41,15 @@ describe("validateCommand", () => {
 
     result = validateCommand("pnpm test && ls", policy, config);
     expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("contains dangerous shell character '&&'");
+
+    result = validateCommand("pnpm test & ls", policy, config);
+    expect(result.allowed).toBe(false);
     expect(result.reason).toContain("contains dangerous shell character '&'");
+
+    result = validateCommand("pnpm test || ls", policy, config);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("contains dangerous shell character '||'");
 
     result = validateCommand("pnpm test | grep foo", policy, config);
     expect(result.allowed).toBe(false);

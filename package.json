@@ -15,7 +15,9 @@
     "dev": "tsx src/cli/main.ts",
     "doctor:install": "node scripts/fix-local-install.mjs",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "validate": "pnpm typecheck && pnpm build && pnpm test",
+    "check": "pnpm validate"
   },
   "dependencies": {
     "commander": "^14.0.2",

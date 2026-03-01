@@ -29,6 +29,18 @@ export function buildPromptEnvelope(input: {
 }
 
 export function assertPromptDrift(previous: PromptEnvelope, next: PromptEnvelope): void {
+  if (previous.taskId !== next.taskId) {
+    throw new Error("Prompt taskId drift detected");
+  }
+  if (previous.runId !== next.runId) {
+    throw new Error("Prompt runId drift detected");
+  }
+  if (previous.provider !== next.provider) {
+    throw new Error("Prompt provider drift detected");
+  }
+  if (previous.baselineCommit !== next.baselineCommit) {
+    throw new Error("Prompt baselineCommit drift detected");
+  }
   if (previous.immutableSectionsHash !== next.immutableSectionsHash) {
     throw new Error("Prompt immutable section drift detected");
   }

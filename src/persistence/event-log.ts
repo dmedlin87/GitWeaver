@@ -32,10 +32,32 @@ export class EventLog {
     if (!existsSync(this.path)) {
       return [];
     }
-    return readFileSync(this.path, "utf8")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as EventRecord);
+    const content = readFileSync(this.path, "utf8");
+    const events: EventRecord[] = [];
+    let start = 0;
+    while (start < content.length) {
+      const end = content.indexOf("\n", start);
+      if (end === -1) {
+        const line = content.substring(start).trim();
+        if (line) {
+          try {
+            events.push(JSON.parse(line) as EventRecord);
+          } catch {
+            break;
+          }
+        }
+        break;
+      }
+      const line = content.substring(start, end).trim();
+      start = end + 1;
+      if (line) {
+        try {
+          events.push(JSON.parse(line) as EventRecord);
+        } catch {
+          break;
+        }
+      }
+    }
+    return events;
   }
 }

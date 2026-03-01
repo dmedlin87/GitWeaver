@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunRecord, TaskRecord } from "../../src/core/types.js";
+import { EventLog } from "../../src/persistence/event-log.js";
 import { reconcileResume } from "../../src/persistence/resume-reconcile.js";
 import { runGit, initGitRepo } from "../helpers/git-fixture.js";
 
@@ -78,6 +79,58 @@ describe("resume reconciliation integration", () => {
     expect(decision.requeueTaskIds).toContain("task-open");
     expect(decision.driftDetected).toBe(false);
     expect(decision.driftCommits).toEqual([]);
+  });
+
+  it("emits RESUME_DB_LAG when git is merged but event log and DB lag", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+    const eventPath = join(repo, "events.ndjson");
+
+    writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "initial"]);
+
+    writeFileSync(join(repo, "file.txt"), "hello lag\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-lag\nORCH_TASK_ID=task-lag"]);
+
+    const run: RunRecord = {
+      runId: "run-lag",
+      objective: "lag check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-lag",
+        provider: "claude",
+        type: "code",
+        state: "RUNNING",
+        attempts: 1,
+        contractHash: "hash-lag"
+      }
+    ];
+
+    const log = new EventLog(eventPath);
+    log.append(run.runId, "TASK_ATTEMPT", { taskId: "task-lag", attempt: 1 });
+    appendFileSync(eventPath, '{"seq":2,"runId":"run-lag","ts":"2023-01-01T00:00:00.000Z","type":"TASK_PROVIDER_HEARTBEAT","payload":{"taskId":"task-lag"', "utf8");
+
+    const events = new EventLog(eventPath).readAll();
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events
+    });
+
+    expect(decision.mergedTaskIds).toContain("task-lag");
+    expect(decision.reasons["task-lag"]).toBe("RESUME_DB_LAG");
   });
 
   it("does not flag drift when commits after baseline belong to the same run", async () => {

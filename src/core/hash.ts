@@ -5,7 +5,14 @@ export function sha256(input: string): string {
 }
 
 export function stableStringify(value: unknown): string {
-  return JSON.stringify(sortValue(value));
+  if (value === undefined) {
+    throw new Error("Cannot stableStringify undefined");
+  }
+  const str = JSON.stringify(sortValue(value));
+  if (str === undefined) {
+    throw new Error("Cannot stableStringify undefined");
+  }
+  return str;
 }
 
 function sortValue(value: unknown): unknown {
