@@ -28,6 +28,13 @@ describe("LockManager", () => {
     expect(second?.[0].fencingToken).toBe(2);
   });
 
+  it("handles duplicate resource keys properly", () => {
+    const manager = new LockManager(1000);
+    const leases = manager.tryAcquireWrite(["file:a.ts", "file:a.ts"], "task-1");
+    expect(leases).not.toBeNull();
+    expect(leases?.length).toBe(1);
+  });
+
   it("normalizes acquisition order for overlapping resource sets", () => {
     const manager = new LockManager(1000);
     const leases = manager.tryAcquireWrite(["file:z.ts", "file:a.ts", "file:m.ts"], "task-1");
