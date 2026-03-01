@@ -5,3 +5,7 @@
 ## 2026-02-28 - Optimizing `minimatch` in hot loops
 **Learning:** Calling the `minimatch(path, pattern)` function inside a loop parses the glob pattern string every single time. For `N` files and `M` patterns, this results in `N * M` redundant parses, creating a significant CPU bottleneck during large commit or error string evaluations.
 **Action:** Always pre-compile glob patterns using the `Minimatch` class (e.g. `new Minimatch(pattern)`) *outside* the loop, then call `.match()` on the pre-compiled objects inside the loop to achieve O(M) compilation time instead of O(N * M).
+
+## 2026-03-01 - Avoid `split` on large execution outputs
+**Learning:** Splitting large strings containing process execution logs (e.g. `output.split(/\r?\n/)`) into an array of lines creates a significant CPU bottleneck and redundant O(N) memory allocation overhead, which is terrible for performance if you only need to find a specific marker.
+**Action:** Use a `while` loop with `indexOf(MARKER_PREFIX, searchIdx)` and `substring` to lazily search for and extract relevant log payloads without fully parsing the entire string into memory.
