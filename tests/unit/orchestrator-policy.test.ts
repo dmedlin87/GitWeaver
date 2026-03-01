@@ -232,7 +232,10 @@ describe("Orchestrator Policy Enforcement", () => {
       contractHash: "hash",
     };
 
-    const record = { attempts: 0, state: "PENDING" };
+    const record: { attempts: number; state: string; reasonCode?: string } = {
+      attempts: 0,
+      state: "PENDING",
+    };
 
     // Create a LockManager where validateFencing explicitly returns false
     const failingLockManager = new LockManager(1000);
@@ -278,7 +281,10 @@ describe("Orchestrator Policy Enforcement", () => {
       contractHash: "hash",
     };
 
-    const record = { attempts: 0, state: "PENDING" };
+    const record: { attempts: number; state: string; reasonCode?: string } = {
+      attempts: 0,
+      state: "PENDING",
+    };
 
     await expect(
       orchestrator.executeTask(
@@ -437,7 +443,10 @@ describe("Orchestrator Policy Enforcement", () => {
       contractHash: "hash",
     };
 
-    const record = { attempts: 0, state: "PENDING" };
+    const record: { attempts: number; state: string; reasonCode?: string } = {
+      attempts: 0,
+      state: "PENDING",
+    };
     const taskById = new Map<string, unknown>();
 
     await orchestrator.executeTask(
@@ -518,7 +527,7 @@ describe("Orchestrator Policy Enforcement", () => {
     tempDirs.push(runDir);
     ctx.runDir = runDir;
     ctx.config.forensicRawLogs = true;
-    const appendSpy = vi.fn(() => ({ seq: 1 }));
+    const appendSpy = vi.fn((..._args: unknown[]) => ({ seq: 1 }));
     ctx.events.append = appendSpy;
     mockAdapterExecution = {
       exitCode: 0,
