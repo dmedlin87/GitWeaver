@@ -56,6 +56,7 @@ export interface RunCliOptions extends PreflightOptions {
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
   plannerProvider?: ProviderId;
+  forceModel?: ProviderId;
   onProgress?: (update: ProgressUpdate) => void;
 }
 
@@ -518,11 +519,11 @@ export class Orchestrator {
           ...planned,
           nodes: planned.nodes.map((node) => {
             const decision = routeTask(node.type, healthSnapshots);
-            // We don't necessarily update ctx.routeDecisions here as it's a delta, 
+            // We don't necessarily update ctx.routeDecisions here as it's a delta,
             // but we ensure providers are assigned correctly.
             return {
               ...node,
-              provider: decision.provider
+              provider: options.forceModel ?? decision.provider
             };
           })
         };
@@ -1270,10 +1271,13 @@ export class Orchestrator {
       ...planned,
       nodes: planned.nodes.map((node) => {
         const decision = routeTask(node.type, healthSnapshots);
-        routeDecisions.push(this.buildRouteDecision(node.taskId, node.type, node.provider, decision));
+        const effectiveDecision = options.forceModel
+          ? { ...decision, provider: options.forceModel, routingReason: `force-model override: ${options.forceModel}` }
+          : decision;
+        routeDecisions.push(this.buildRouteDecision(node.taskId, node.type, node.provider, effectiveDecision));
         return {
           ...node,
-          provider: decision.provider
+          provider: effectiveDecision.provider
         };
       })
     };

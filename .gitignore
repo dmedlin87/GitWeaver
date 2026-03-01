@@ -3,3 +3,17 @@ dist
 .orchestrator
 coverage
 *.log
+# Temporary and editor files (unstaged changes)
+*~
+*.tmp
+*.bak
+*.old
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Environment files
+.env
+.env.local

@@ -15,6 +15,8 @@ interface RunOptions {
   containerRuntime?: "docker" | "podman";
   containerImage?: string;
   plannerProvider?: ProviderId;
+  forceModel?: ProviderId;
+  devMode?: boolean;
   installMissing?: "prompt" | "never" | "auto";
   upgradeProviders?: "warn" | "never" | "prompt" | "required";
   nonInteractive?: boolean;
@@ -38,6 +40,8 @@ export function registerRunCommand(program: Command): void {
     .option("--container-runtime <runtime>", "docker|podman")
     .option("--container-image <image>", "container image for provider/gate execution")
     .option("--planner-provider <provider>", "codex|claude|gemini", parsePlannerProvider)
+    .option("--force-model <provider>", "codex|claude|gemini — override routing for all tasks", parseForceModel)
+    .option("--dev-mode", "force all task routing to gemini (preserves high-tier quota during development)")
     .option("--install-missing <mode>", "prompt|never|auto", "prompt")
     .option("--upgrade-providers <mode>", "warn|never|prompt|required", "warn")
     .option("--non-interactive", "disable interactive prompts")
@@ -83,6 +87,7 @@ export function registerRunCommand(program: Command): void {
         containerRuntime: opts.containerRuntime,
         containerImage: opts.containerImage,
         plannerProvider: opts.plannerProvider,
+        forceModel: opts.devMode ? "gemini" : opts.forceModel,
         dryRunReport: opts.dryRunReport,
         installMissing: opts.installMissing,
         upgradeProviders: opts.upgradeProviders,
@@ -127,4 +132,11 @@ function parsePlannerProvider(value: string): ProviderId {
     return value;
   }
   throw new Error(`Invalid planner provider: ${value}`);
+}
+
+function parseForceModel(value: string): ProviderId {
+  if (value === "codex" || value === "claude" || value === "gemini") {
+    return value;
+  }
+  throw new Error(`Invalid force-model provider: ${value}`);
 }

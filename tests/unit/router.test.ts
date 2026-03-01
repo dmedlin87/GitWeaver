@@ -7,6 +7,46 @@ describe("routeTask", () => {
     expect(decision.provider).toBe("claude");
   });
 
+  it("routes refactor tasks to claude", () => {
+    const decision = routeTask("refactor", {});
+    expect(decision.provider).toBe("claude");
+  });
+
+  it("routes test tasks to claude", () => {
+    const decision = routeTask("test", {});
+    expect(decision.provider).toBe("claude");
+  });
+
+  it("routes deps tasks to claude", () => {
+    const decision = routeTask("deps", {});
+    expect(decision.provider).toBe("claude");
+  });
+
+  it("routes ui tasks to gemini", () => {
+    const decision = routeTask("ui", {});
+    expect(decision.provider).toBe("gemini");
+  });
+
+  it("routes multimodal tasks to gemini", () => {
+    const decision = routeTask("multimodal", {});
+    expect(decision.provider).toBe("gemini");
+  });
+
+  it("routes plan tasks to codex", () => {
+    const decision = routeTask("plan", {});
+    expect(decision.provider).toBe("codex");
+  });
+
+  it("routes audit tasks to codex", () => {
+    const decision = routeTask("audit", {});
+    expect(decision.provider).toBe("codex");
+  });
+
+  it("routes repair tasks to codex", () => {
+    const decision = routeTask("repair", {});
+    expect(decision.provider).toBe("codex");
+  });
+
   it("falls back when provider is degraded", () => {
     const decision = routeTask("code", {
       claude: { provider: "claude", score: 10, lastErrors: ["429"], tokenBucket: 0 },
@@ -49,6 +89,24 @@ describe("routeTask", () => {
     });
     expect(decision.provider).toBe("claude");
     expect(decision.fallbackReason).toContain("No healthy fallback");
+  });
+
+  it("falls back from gemini when degraded for ui tasks", () => {
+    const decision = routeTask("ui", {
+      gemini: { provider: "gemini", score: 10, lastErrors: ["429"], tokenBucket: 0 },
+      claude: { provider: "claude", score: 90, lastErrors: [], tokenBucket: 1 }
+    });
+    expect(decision.provider).toBe("claude");
+    expect(decision.fallbackReason).toContain("degraded");
+  });
+
+  it("falls back from codex when degraded for plan tasks", () => {
+    const decision = routeTask("plan", {
+      codex: { provider: "codex", score: 10, lastErrors: ["429"], tokenBucket: 0 },
+      claude: { provider: "claude", score: 90, lastErrors: [], tokenBucket: 1 }
+    });
+    expect(decision.provider).toBe("claude");
+    expect(decision.fallbackReason).toContain("degraded");
   });
 });
 

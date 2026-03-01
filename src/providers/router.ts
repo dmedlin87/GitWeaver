@@ -18,27 +18,30 @@ function preferredProvider(type: TaskType): {
   switch (type) {
     case "code":
     case "refactor":
+    case "test":
+    case "deps":
+      return {
+        provider: "claude",
+        reason: "task type prefers Claude for idiomatic code execution",
+      };
     case "ui":
     case "multimodal":
       return {
-        provider: "claude",
-        reason: "task type prefers Claude for implementation-heavy work",
+        provider: "gemini",
+        reason: "task type prefers Gemini for deep context and multimodal work",
       };
-    case "test":
-    case "repair":
+    case "plan":
     case "audit":
+    case "repair":
       return {
         provider: "codex",
         reason:
-          "task type prefers Codex for deterministic verification and repair loops",
+          "task type prefers Codex for architectural planning and deterministic verification",
       };
     case "docs":
-    case "deps":
-    case "plan":
       return {
         provider: "claude",
-        reason:
-          "task type prefers Claude for planning and documentation synthesis",
+        reason: "task type prefers Claude for documentation synthesis",
       };
     default:
       return {
