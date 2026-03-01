@@ -45,7 +45,7 @@ export function validateCommand(
   // 3. Check for dangerous shell metacharacters.
   // We are very strict here because gateCommand is executed in a shell.
   // We disallow most chaining and redirection characters.
-  const dangerous = [";", "&", "|", ">", "<", "`", "$", "\n", "\r"];
+  const dangerous = [";", "&&", "&", "||", "|", ">", "<", "`", "$", "\n", "\r"];
   for (const char of dangerous) {
     if (command.includes(char)) {
       return {
