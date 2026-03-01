@@ -101,6 +101,11 @@ interface TaskRoutingDecision {
   fallbackReason?: string;
 }
 
+interface BaselineGateResult {
+  command: string;
+  exitCode: number;
+}
+
 export class Orchestrator {
   private readonly logger: Logger;
   private readonly metrics: Metrics;
@@ -120,35 +125,7 @@ export class Orchestrator {
       containerRuntime: options.containerRuntime ?? loadedConfig.containerRuntime,
       containerImage: options.containerImage ?? loadedConfig.containerImage
     };
-    const runDir = join(repoPath, ".orchestrator", "runs", runId);
-    mkdirSync(runDir, { recursive: true });
-
-    const db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"), {
-      journalMode: config.sqliteJournalMode,
-      synchronous: config.sqliteSynchronous,
-      busyTimeoutMs: config.sqliteBusyTimeoutMs,
-      busyRetryMax: config.sqliteBusyRetryMax,
-      onBusyRetry: (operation, attempt, error) => {
-        this.metrics.inc("sqlite.busy_retry");
-        this.logger.info("SQLite busy retry", { runId, operation, attempt, message: error.message });
-      },
-      onBusyExhausted: (operation, attempts, error) => {
-        this.metrics.inc("sqlite.busy_exhausted");
-        this.logger.error("SQLite busy exhausted", { runId, operation, attempts, message: error.message });
-      }
-    });
-    db.migrate();
-
-    const events = new EventLog(join(runDir, "events.ndjson"));
     const secureExecutor = createSecureExecutor(config.executionMode);
-    const providerHealth = new ProviderHealthManager({
-      buckets: config.providerBuckets,
-      baseBackoffSec: config.providerBackoffBaseSec,
-      maxBackoffSec: config.providerBackoffMaxSec,
-      recoverPerSuccess: config.providerHealthRecoverPerSuccess,
-      initial: this.indexProviderHealth(db.listProviderHealth(runId))
-    });
-
     const baselineCommit = await this.gitHead(repoPath);
     const now = new Date().toISOString();
     const run: RunRecord = {
@@ -161,40 +138,72 @@ export class Orchestrator {
       createdAt: now,
       updatedAt: now
     };
-
-    const ctx: RuntimeContext = {
-      run,
-      config,
-      runDir,
-      db,
-      events,
-      secureExecutor,
-      providerHealth,
-      providerVersions: {},
-      routeDecisions: [],
-      onProgress: options.onProgress
-    };
+    let db: OrchestratorDb | undefined;
+    let ctx: RuntimeContext | undefined;
 
     try {
-      this.persistRun(ctx);
-      this.progress(ctx, "run_started", "Run initialized");
+      this.emitProgress(runId, options.onProgress, "run_started", "Run initialized");
+      const baselineGate = await this.checkBaseline(runId, repoPath, config, secureExecutor, options);
 
-      await this.preflightStageA(ctx, options);
-      await this.ensureBaseline(ctx, options);
-      const frozenDag = await this.plan(ctx, options);
-      this.writeManifest(ctx, frozenDag);
+      const runDir = join(repoPath, ".orchestrator", "runs", runId);
+      mkdirSync(runDir, { recursive: true });
+
+      db = new OrchestratorDb(join(repoPath, ".orchestrator", "state.sqlite"), {
+        journalMode: config.sqliteJournalMode,
+        synchronous: config.sqliteSynchronous,
+        busyTimeoutMs: config.sqliteBusyTimeoutMs,
+        busyRetryMax: config.sqliteBusyRetryMax,
+        onBusyRetry: (operation, attempt, error) => {
+          this.metrics.inc("sqlite.busy_retry");
+          this.logger.info("SQLite busy retry", { runId, operation, attempt, message: error.message });
+        },
+        onBusyExhausted: (operation, attempts, error) => {
+          this.metrics.inc("sqlite.busy_exhausted");
+          this.logger.error("SQLite busy exhausted", { runId, operation, attempts, message: error.message });
+        }
+      });
+      db.migrate();
+
+      const events = new EventLog(join(runDir, "events.ndjson"));
+      const providerHealth = new ProviderHealthManager({
+        buckets: config.providerBuckets,
+        baseBackoffSec: config.providerBackoffBaseSec,
+        maxBackoffSec: config.providerBackoffMaxSec,
+        recoverPerSuccess: config.providerHealthRecoverPerSuccess,
+        initial: this.indexProviderHealth(db.listProviderHealth(runId))
+      });
+      ctx = {
+        run,
+        config,
+        runDir,
+        db,
+        events,
+        secureExecutor,
+        providerHealth,
+        providerVersions: {},
+        routeDecisions: [],
+        onProgress: options.onProgress
+      };
+      const runtimeCtx = ctx;
+
+      this.persistRun(runtimeCtx);
+      this.recordBaselineOk(runtimeCtx, baselineGate);
+
+      await this.preflightStageA(runtimeCtx, options);
+      const frozenDag = await this.plan(runtimeCtx, options);
+      this.writeManifest(runtimeCtx, frozenDag);
 
       const providersInDag = [...new Set(frozenDag.nodes.map((node) => node.provider))] as ProviderId[];
-      await this.preflightStageB(ctx, providersInDag, options);
-      this.writeManifest(ctx, frozenDag);
+      await this.preflightStageB(runtimeCtx, providersInDag, options);
+      this.writeManifest(runtimeCtx, frozenDag);
 
       if (options.dryRun) {
-        this.progress(ctx, "dry_run", "Dry run completed after planning");
+        this.progress(runtimeCtx, "dry_run", "Dry run completed after planning");
         const detailed = options.dryRunReport !== "basic";
-        return this.completeRun(ctx, "COMPLETED", undefined, {
+        return this.completeRun(runtimeCtx, "COMPLETED", undefined, {
           dryRun: true,
           dag: frozenDag,
-          routeDecisions: detailed ? ctx.routeDecisions : undefined,
+          routeDecisions: detailed ? runtimeCtx.routeDecisions : undefined,
           estimatedCost: detailed ? this.estimateDryRunCost(frozenDag) : undefined
         });
       }
@@ -213,23 +222,34 @@ export class Orchestrator {
       // 💡 What: Grouping multiple task inserts into a single SQLite transaction.
       // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
       // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making DAG initialization significantly faster.
-      db.transaction(() => {
+      runtimeCtx.db.transaction(() => {
         for (const task of taskRecords) {
-          db.upsertTask(task);
+          runtimeCtx.db.upsertTask(task);
         }
       });
 
-      const outcome = await this.executeDag(ctx, frozenDag, taskRecords, options);
+      const outcome = await this.executeDag(runtimeCtx, frozenDag, taskRecords, options);
       return outcome;
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
       this.logger.error("Run failed", { runId, reasonCode, message: (error as Error).message });
-      return this.completeRun(ctx, "ABORTED_POLICY", reasonCode, {
-        error: (error as Error).message,
-        metrics: this.metrics.snapshot()
-      });
+      if (ctx) {
+        return this.completeRun(ctx, "ABORTED_POLICY", reasonCode, {
+          error: (error as Error).message,
+          metrics: this.metrics.snapshot()
+        });
+      }
+      return {
+        runId,
+        state: "ABORTED_POLICY",
+        reasonCode,
+        summary: {
+          error: (error as Error).message,
+          metrics: this.metrics.snapshot()
+        }
+      };
     } finally {
-      db.close();
+      db?.close();
     }
   }
 
@@ -1162,32 +1182,45 @@ export class Orchestrator {
     }
   }
 
-  private async ensureBaseline(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
-    this.progress(ctx, "baseline_start", "Checking repository baseline");
-    const clean = await this.isRepoClean(ctx.run.repoPath);
+  private async checkBaseline(
+    runId: string,
+    repoPath: string,
+    config: RuntimeConfig,
+    secureExecutor: SecureExecutor,
+    options: Pick<RunCliOptions, "allowBaselineRepair" | "onProgress">
+  ): Promise<BaselineGateResult> {
+    this.emitProgress(runId, options.onProgress, "baseline_start", "Checking repository baseline");
+    const clean = await this.isRepoClean(repoPath);
     if (!clean) {
       throw this.errorWithCode("Repository is dirty at run start", REASON_CODES.BASELINE_DIRTY_REPO);
     }
 
-    const gate = await runGate(ctx.config.baselineGateCommand, ctx.run.repoPath, 180_000, {
-      env: ctx.secureExecutor.prepareEnvironment(process.env),
-      executionMode: ctx.config.executionMode,
-      containerRuntime: ctx.config.containerRuntime,
-      containerImage: ctx.config.containerImage,
-      containerMemoryMb: ctx.config.containerMemoryMb,
-      containerCpuLimit: ctx.config.containerCpuLimit,
-      containerRunAsUser: ctx.config.containerRunAsUser,
-      containerDropCapabilities: ctx.config.containerDropCapabilities,
-      containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
-      networkPolicy: this.resolveNetworkPolicy(ctx, ctx.config.defaultNetworkPolicy)
+    const gate = await runGate(config.baselineGateCommand, repoPath, 180_000, {
+      env: secureExecutor.prepareEnvironment(process.env),
+      executionMode: config.executionMode,
+      containerRuntime: config.containerRuntime,
+      containerImage: config.containerImage,
+      containerMemoryMb: config.containerMemoryMb,
+      containerCpuLimit: config.containerCpuLimit,
+      containerRunAsUser: config.containerRunAsUser,
+      containerDropCapabilities: config.containerDropCapabilities,
+      containerReadOnlyRootfs: config.containerReadOnlyRootfs,
+      networkPolicy: secureExecutor.networkAllowed(config.defaultNetworkPolicy === "allow") ? "allow" : "deny"
     });
     if (!gate.ok && !options.allowBaselineRepair) {
       throw this.errorWithCode("Baseline gate failed", REASON_CODES.BASELINE_GATE_FAILED);
     }
 
+    this.emitProgress(runId, options.onProgress, "baseline_done", "Baseline checks passed");
+    return {
+      command: gate.command,
+      exitCode: gate.exitCode
+    };
+  }
+
+  private recordBaselineOk(ctx: RuntimeContext, gate: BaselineGateResult): void {
     this.transitionRun(ctx, "BASELINE_OK");
     ctx.events.append(ctx.run.runId, "BASELINE_OK", { command: gate.command, exitCode: gate.exitCode });
-    this.progress(ctx, "baseline_done", "Baseline checks passed");
   }
 
   private async plan(ctx: RuntimeContext, options: RunCliOptions): Promise<DagSpec> {
@@ -1736,22 +1769,33 @@ export class Orchestrator {
     }
   }
 
+  private emitProgress(
+    runId: string,
+    onProgress: ((update: ProgressUpdate) => void) | undefined,
+    stage: string,
+    message: string,
+    details: Omit<ProgressUpdate, "runId" | "ts" | "stage" | "message"> = {}
+  ): void {
+    if (!onProgress) {
+      return;
+    }
+
+    onProgress({
+      runId,
+      ts: new Date().toISOString(),
+      stage,
+      message,
+      ...details
+    });
+  }
+
   private progress(
     ctx: RuntimeContext,
     stage: string,
     message: string,
     details: Omit<ProgressUpdate, "runId" | "ts" | "stage" | "message"> = {}
   ): void {
-    if (!ctx.onProgress) {
-      return;
-    }
-    ctx.onProgress({
-      runId: ctx.run.runId,
-      ts: new Date().toISOString(),
-      stage,
-      message,
-      ...details
-    });
+    this.emitProgress(ctx.run.runId, ctx.onProgress, stage, message, details);
   }
 }
 

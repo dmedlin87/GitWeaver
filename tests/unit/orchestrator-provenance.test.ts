@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { DEFAULT_CONFIG } from "../../src/core/config.js";
+import { REASON_CODES } from "../../src/core/reason-codes.js";
 
 const tempDirs: string[] = [];
 
@@ -108,7 +109,10 @@ describe("orchestrator provenance helpers", () => {
     const preflightASpy = vi.spyOn(orchestrator, "preflightStageA").mockImplementation(async (ctx: any) => {
       ctx.providerVersions.codex = "1.0.0";
     });
-    const ensureBaselineSpy = vi.spyOn(orchestrator, "ensureBaseline").mockImplementation(async () => undefined);
+    const checkBaselineSpy = vi.spyOn(orchestrator, "checkBaseline").mockResolvedValue({
+      command: "pnpm -s tsc -p .",
+      exitCode: 0
+    });
     const planSpy = vi.spyOn(orchestrator, "plan").mockResolvedValue({
       nodes: [
         {
@@ -156,7 +160,7 @@ describe("orchestrator provenance helpers", () => {
     persistRunSpy.mockRestore();
     progressSpy.mockRestore();
     preflightASpy.mockRestore();
-    ensureBaselineSpy.mockRestore();
+    checkBaselineSpy.mockRestore();
     planSpy.mockRestore();
     writeManifestSpy.mockRestore();
     preflightBSpy.mockRestore();
@@ -164,6 +168,34 @@ describe("orchestrator provenance helpers", () => {
     resolveRepoSpy.mockRestore();
     gitHeadSpy.mockRestore();
   });
+
+  it("checks baseline before creating .orchestrator artifacts", async () => {
+    const orchestrator = new Orchestrator() as any;
+    const repoPath = makeTempDir();
+    const orchestratorDir = join(repoPath, ".orchestrator");
+    let sawArtifactsDuringBaselineCheck = true;
+
+    const resolveRepoSpy = vi.spyOn(orchestrator, "resolveRepo").mockResolvedValue(repoPath);
+    const gitHeadSpy = vi.spyOn(orchestrator, "gitHead").mockResolvedValue("baseline-sha");
+    const isRepoCleanSpy = vi.spyOn(orchestrator, "isRepoClean").mockImplementation(async () => {
+      sawArtifactsDuringBaselineCheck = existsSync(orchestratorDir);
+      return false;
+    });
+
+    const outcome = await orchestrator.run({
+      prompt: "verify baseline ordering",
+      dryRun: true
+    });
+
+    expect(outcome.reasonCode).toBe(REASON_CODES.BASELINE_DIRTY_REPO);
+    expect(sawArtifactsDuringBaselineCheck).toBe(false);
+    expect(existsSync(orchestratorDir)).toBe(false);
+
+    resolveRepoSpy.mockRestore();
+    gitHeadSpy.mockRestore();
+    isRepoCleanSpy.mockRestore();
+  });
+
   it("writes routed plan metadata and manifest with provider versions", async () => {
     const orchestrator = new Orchestrator() as any;
     const runDir = makeTempDir();
