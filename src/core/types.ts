@@ -142,6 +142,11 @@ export interface RunRecord {
   createdAt: string;
   updatedAt: string;
   reasonCode?: ReasonCode;
+  replanEvidence?: {
+    summary: string;
+    research?: string;
+  };
+  narrativeSummary?: string;
 }
 
 export interface TaskRecord {
@@ -155,6 +160,16 @@ export interface TaskRecord {
   leaseToken?: number;
   commitHash?: string;
   reasonCode?: ReasonCode;
+  summary?: string;
+  research?: string;
+}
+
+export interface ProjectAxiom {
+  runId: string;
+  axiomId: string;
+  content: string;
+  sourceTaskId: string;
+  createdAt: string;
 }
 
 export interface EventRecord {

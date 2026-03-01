@@ -34,6 +34,18 @@ export class PriorityQueue<T> {
     return this.items.size;
   }
 
+  public remove(key: string): boolean {
+    return this.items.delete(key);
+  }
+
+  public get(key: string): T | undefined {
+    return this.items.get(key)?.payload;
+  }
+
+  public keys(): string[] {
+    return Array.from(this.items.keys());
+  }
+
   private pickNext(): QueueItem<T> | undefined {
     let best: QueueItem<T> | undefined;
     for (const item of this.items.values()) {

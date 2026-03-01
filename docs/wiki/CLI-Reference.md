@@ -31,6 +31,8 @@ orchestrator run "<prompt>" [options]
 | `--dry-run-report <mode>` | `basic` \| `detailed` | `detailed` | Dry-run output verbosity |
 | `--config <path>` | string | none | Path to JSON config file |
 | `--repo <path>` | string | cwd | Repository root override |
+| `--bootstrap` | boolean | false | Create/init repository before running (requires `--repo`) |
+| `--bootstrap-template <template>` | `blank` \| `web-game-ts` | `blank` | Bootstrap scaffold template |
 | `--allow-baseline-repair` | boolean | false | Continue when baseline gate fails |
 | `--accept-drift` | boolean | false | Accept baseline drift on resume/integration |
 | `--execution-mode <mode>` | `host` \| `container` | `host` | Provider execution environment |
@@ -52,6 +54,9 @@ orchestrator run "Refactor payment module" --concurrency 6 --config ./config.jso
 
 # Dry run with detailed report
 orchestrator run "Migrate to ESM" --dry-run --dry-run-report detailed
+
+# Bootstrap a new repository and run immediately
+orchestrator run "Build a snake game in TypeScript with tests" --repo C:\Users\you\Projects\snake-game --bootstrap --bootstrap-template web-game-ts
 
 # Container execution
 orchestrator run "Security audit" --execution-mode container --container-runtime docker

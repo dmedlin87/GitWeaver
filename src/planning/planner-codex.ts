@@ -1,9 +1,9 @@
 import { writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodexAdapter } from "../providers/adapters/codex.js";
+import { GeminiAdapter } from "../providers/adapters/gemini.js";
 import { validateDag } from "./dag-schema.js";
-import type { DagSpec } from "../core/types.js";
+import type { DagSpec, TaskContract } from "../core/types.js";
 import { REASON_CODES } from "../core/reason-codes.js";
 
 export interface PlannerResult {
@@ -55,7 +55,7 @@ const PLANNER_SCHEMA = {
             type: "object",
             additionalProperties: false,
             properties: {
-              files: { type: "array", items: { type: "string" } },
+              files: { type: ["array", "null"], items: { type: "string" } },
               exports: {
                 type: ["array", "null"],
                 items: {
@@ -123,7 +123,7 @@ const PLANNER_SCHEMA = {
   required: ["nodes", "edges"]
 };
 
-function plannerPrompt(objective: string, repoContext: string): string {
+function plannerPrompt(objective: string, repoContext: string, pendingTasks?: TaskContract[]): string {
   const lines = [
     "Generate a strict JSON DAG for a heterogeneous coding orchestrator.",
     "Rules:",
@@ -137,10 +137,45 @@ function plannerPrompt(objective: string, repoContext: string): string {
     lines.push("\nRepository Context:");
     lines.push(repoContext);
   }
+  if (pendingTasks && pendingTasks.length > 0) {
+    lines.push("\nPreviously Planned & Pending Tasks (to be reviewed/dropped/modified):");
+    lines.push(JSON.stringify(pendingTasks, null, 2));
+  }
   return lines.join("\n");
 }
 
 export function extractJsonPayload(raw: string): unknown {
+  // 1. Try to find JSON inside markdown code blocks
+  const markdownRegex = /```(?:json)?\s*([\s\S]*?)```/g;
+  const matches = [...raw.matchAll(markdownRegex)];
+  for (const match of matches) {
+    try {
+      const inner = JSON.parse((match[1] ?? "").trim());
+      if (inner && typeof inner === "object" && typeof (inner as any).response === "string") {
+        return extractJsonPayload((inner as any).response);
+      }
+      return inner;
+    } catch {
+      // Continue searching
+    }
+  }
+
+  // 2. Aggressive brace matching
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = raw.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
+        return extractJsonPayload((parsed as any).response);
+      }
+      return parsed;
+    } catch {
+      // Continue to line-by-line
+    }
+  }
+
   const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
   for (const line of lines) {
@@ -176,21 +211,34 @@ export function extractJsonPayload(raw: string): unknown {
       continue;
     }
     try {
-      return JSON.parse(line);
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
+        return extractJsonPayload((parsed as any).response);
+      }
+      return parsed;
     } catch {
       continue;
     }
   }
 
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof (parsed as any).response === "string") {
+      return extractJsonPayload((parsed as any).response);
+    }
+    return parsed;
   } catch {
+    console.error("DEBUG: Failed to parse planner output as JSON. Length:", raw.length);
+    if (raw.length > 0) {
+      console.error("DEBUG: Start of output:", raw.slice(0, 500));
+      console.error("DEBUG: End of output:", raw.slice(-500));
+    }
     throw new Error("Planner returned non-JSON output");
   }
 }
 
-export async function generateDagWithCodex(objective: string, cwd: string): Promise<PlannerResult> {
-  const adapter = new CodexAdapter();
+export async function generateDagWithCodex(objective: string, cwd: string, pendingTasks?: TaskContract[]): Promise<PlannerResult> {
+  const adapter = new GeminiAdapter();
   const schemaPath = join(tmpdir(), `orch-planner-schema-${Date.now()}.json`);
   writeFileSync(schemaPath, JSON.stringify(PLANNER_SCHEMA), "utf8");
 
@@ -204,16 +252,18 @@ export async function generateDagWithCodex(objective: string, cwd: string): Prom
   let raw = "";
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    process.stdout.write(`Planning attempt ${attempt}/3...\n`);
     const result = await adapter.execute({
-      prompt: plannerPrompt(objective, repoContext),
+      prompt: plannerPrompt(objective, repoContext, pendingTasks),
       cwd,
       timeoutMs: 180_000,
-      outputSchemaPath: schemaPath
+      executionMode: "host"
     });
 
     raw = result.stdout;
 
     if (result.exitCode !== 0) {
+      process.stdout.write(`Attempt ${attempt} failed with exit code ${result.exitCode}.\n`);
       lastError = new Error(`Planner command failed (attempt ${attempt}): ${result.stderr || result.stdout}`);
       continue;
     }
@@ -221,8 +271,10 @@ export async function generateDagWithCodex(objective: string, cwd: string): Prom
     try {
       const parsed = extractJsonPayload(raw);
       const dag = validateDag(parsed);
+      process.stdout.write(`Plan generated successfully on attempt ${attempt}.\n`);
       return { dag, rawResponse: raw, retries: attempt - 1 };
     } catch (error) {
+      process.stdout.write(`Attempt ${attempt} failed schema validation: ${(error as Error).message}\n`);
       lastError = error as Error;
     }
   }

@@ -6,7 +6,10 @@ export class GeminiAdapter implements ProviderAdapter {
   public readonly provider = "gemini" as const;
 
   public async execute(request: ProviderExecutionRequest): Promise<ProviderExecutionResult> {
-    const args = ["--prompt", "orchestrator_input", "--output-format", "json", "--approval-mode", "auto_edit"];
+    // Prompt is delivered via stdin, not as a CLI arg.
+    // Positional args break on Windows (cmd.exe splits on newlines) and cause
+    // Gemini to hang waiting for TTY input on all platforms.
+    const args = ["--output-format", "json"];
     const result = request.executionMode === "container"
       ? await runInContainer({
           runtime: request.containerRuntime ?? "docker",

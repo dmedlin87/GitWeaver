@@ -11,6 +11,7 @@ import { sha256, stableStringify } from "./hash.js";
 import { runCommand } from "./shell.js";
 import { runPreflight, type PreflightOptions } from "../providers/preflight.js";
 import { generateDagWithCodex } from "../planning/planner-codex.js";
+import { condenseHistory } from "../planning/condenser-gemini.js";
 import { auditPlan } from "../planning/plan-audit.js";
 import { freezePlan } from "../planning/plan-freeze.js";
 import { rerouteOnDegradation, routeTask } from "../providers/router.js";
@@ -29,6 +30,7 @@ import { runGate } from "../verification/post-merge-gate.js";
 import { artifactKey, collectArtifactSignatures, detectStaleness, type ArtifactSignatureMap } from "../verification/staleness.js";
 import { buildContextPack } from "../planning/context-pack.js";
 import { assertPromptDrift, buildPromptEnvelope } from "../planning/prompt-envelope.js";
+import { parseCompletionMarker } from "../execution/completion-parser.js";
 import { classifyFailure, isNonRepairableExecutionFailure } from "../repair/failure-classifier.js";
 import { RepairBudget } from "../repair/repair-budget.js";
 import { buildRepairTask } from "../repair/repair-planner.js";
@@ -424,8 +426,29 @@ export class Orchestrator {
           taskById,
           dependencyMap
         )
-          .catch((error) => {
+          .catch(async (error) => {
             const reasonCode = this.extractReasonCode(error);
+            if (reasonCode === REASON_CODES.REPLAN_REQUESTED) {
+              const evidence = (error as any).evidence;
+              ctx.run.state = "REPLANNING";
+              ctx.run.replanEvidence = evidence;
+              this.persistRun(ctx);
+
+              ctx.events.append(ctx.run.runId, "REPLAN_REQUESTED", {
+                taskId: task.taskId,
+                summary: evidence.summary,
+                research: evidence.research
+              });
+
+              this.progress(ctx, "replan_requested", `Task ${task.taskId} requested replan: ${evidence.summary}`, {
+                taskId: task.taskId
+              });
+
+              // Pause new dispatches while we replan
+              // In this simplified implementation, we just need the loop to see PLANNING state.
+              return;
+            }
+
             record.state = "ESCALATED";
             record.reasonCode = reasonCode;
             ctx.db.upsertTask(record);
@@ -441,6 +464,100 @@ export class Orchestrator {
           });
 
         running.set(task.taskId, taskPromise);
+      }
+
+      if (ctx.run.state === "REPLANNING") {
+        await Promise.all(running.values());
+        
+        const completedSummaries = [...stateByTask.values()]
+          .filter(t => t.state === "VERIFIED")
+          .map(t => `${t.taskId}: ${t.summary}`);
+
+        const pendingTaskIds = scheduler.listPending();
+        const pendingContracts = pendingTaskIds
+          .map(id => taskById.get(id))
+          .filter((t): t is TaskContract => !!t);
+
+        const replanObjective = [
+          `Original Objective: ${ctx.run.objective}`,
+          `Progress so far:\n${completedSummaries.join("\n")}`,
+          `REPLAN REQUESTED by agent.`,
+          `Request Summary: ${ctx.run.replanEvidence?.summary}`,
+          `Agent Research:\n${ctx.run.replanEvidence?.research || "N/A"}`
+        ].join("\n\n");
+
+        const deltaResult = await generateDagWithCodex(replanObjective, ctx.run.repoPath, pendingContracts);
+        const planned = deltaResult.dag;
+
+        // Apply routing and audit to the new tasks
+        const healthSnapshots = ctx.providerHealth.snapshotAll();
+        const routed: DagSpec = {
+          ...planned,
+          nodes: planned.nodes.map((node) => {
+            const decision = routeTask(node.type, healthSnapshots);
+            // We don't necessarily update ctx.routeDecisions here as it's a delta, 
+            // but we ensure providers are assigned correctly.
+            return {
+              ...node,
+              provider: decision.provider
+            };
+          })
+        };
+
+        const audited = auditPlan(routed);
+        const deltaDag = audited.dag;
+        
+        const newNodeIds = new Set(deltaDag.nodes.map(n => n.taskId));
+
+        // 1. Cancel pending tasks that are NOT in the new DAG
+        for (const pendingId of pendingTaskIds) {
+          if (!newNodeIds.has(pendingId)) {
+            const record = stateByTask.get(pendingId);
+            if (record) {
+              record.state = "ESCALATED";
+              record.reasonCode = REASON_CODES.STALE_REPLAN_TRIGGERED;
+              ctx.db.upsertTask(record);
+              ctx.events.append(ctx.run.runId, "TASK_CANCELLED", {
+                taskId: pendingId,
+                reasonCode: record.reasonCode
+              });
+            }
+            scheduler.cancel(pendingId);
+          }
+        }
+
+        // 2. Add or Update tasks from the new DAG
+        for (const newNode of deltaDag.nodes) {
+          const isNew = !taskById.has(newNode.taskId);
+          taskById.set(newNode.taskId, newNode);
+          
+          if (isNew) {
+            const newRecord: TaskRecord = {
+              runId: ctx.run.runId,
+              taskId: newNode.taskId,
+              provider: newNode.provider,
+              type: newNode.type,
+              state: "PENDING",
+              attempts: 0,
+              contractHash: newNode.contractHash
+            };
+            stateByTask.set(newNode.taskId, newRecord);
+            ctx.db.upsertTask(newRecord);
+            scheduler.add(newNode);
+          } else {
+            // If it existed but was still pending, update the contract in case planner changed it
+            // (e.g. changed dependencies or write scope)
+            scheduler.updateContract(newNode);
+          }
+          
+          const deps = newNode.dependencies ?? [];
+          dependencyMap.set(newNode.taskId, deps);
+        }
+
+        ctx.run.state = "DISPATCHING";
+        ctx.run.replanEvidence = undefined;
+        this.persistRun(ctx);
+        continue;
       }
 
       if (running.size === 0 && scheduler.pending() === 0) {
@@ -524,6 +641,7 @@ export class Orchestrator {
 
     const baseCommit = await this.gitHead(ctx.run.repoPath);
     const worktree = await worktreeManager.create(ctx.run.repoPath, ctx.run.runId, task.taskId, baseCommit);
+    this.injectWorktreeMemory(ctx, worktree.path, task, stateByTask);
     const consumedArtifacts = task.artifactIO.consumes ?? [];
     const consumedArtifactKeys = consumedArtifacts.map((artifact) => artifactKey(ctx.run.repoPath, artifact));
     const registrySignatures = ctx.db.listArtifactSignatures(ctx.run.runId, consumedArtifactKeys);
@@ -694,6 +812,36 @@ export class Orchestrator {
       }
       this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(task.provider));
 
+      const marker = parseCompletionMarker(execution.stdout);
+      if (marker) {
+        record.summary = marker.summary;
+        record.research = marker.research;
+
+        if (marker.status === "replan") {
+          const replanErr = this.errorWithCode(`Agent requested replan: ${marker.summary}`, REASON_CODES.REPLAN_REQUESTED);
+          (replanErr as any).evidence = { summary: marker.summary, research: marker.research };
+          throw replanErr;
+        }
+
+        // Tier 3: Extract and save Axioms
+        if (marker.research) {
+          const axiomRegex = /\[AXIOM\]\s*([^[]*)/gi;
+          let match;
+          while ((match = axiomRegex.exec(marker.research)) !== null) {
+            const content = match[1]?.trim();
+            if (content) {
+              ctx.db.upsertAxiom({
+                runId: ctx.run.runId,
+                axiomId: sha256(`${ctx.run.runId}:${content}`),
+                content,
+                sourceTaskId: task.taskId,
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+
       const commitHash = await latestCommit(worktree.path);
       if (commitHash === baseCommit) {
         throw this.errorWithCode(`Task ${task.taskId} produced no commit`, REASON_CODES.NO_COMMIT_PRODUCED);
@@ -820,6 +968,19 @@ export class Orchestrator {
         taskId: task.taskId,
         provider: task.provider
       });
+
+      // Tier 2: Trigger Narrative Condensation (Synchronous to ensure next task sees it)
+      const verified = ctx.db.listRecentVerifiedTasks(ctx.run.runId, 100);
+      if (verified.length > 5) {
+        try {
+          const summary = await condenseHistory(ctx.run.objective, verified, ctx.run.repoPath, ctx.run.narrativeSummary);
+          ctx.run.narrativeSummary = summary;
+          ctx.db.upsertRun(ctx.run);
+          ctx.events.append(ctx.run.runId, "NARRATIVE_UPDATED", { summary });
+        } catch (err) {
+          this.logger.error("Condenser failed", { error: (err as Error).message, runId: ctx.run.runId });
+        }
+      }
     } catch (error) {
       const reasonCode = this.extractReasonCode(error);
       const errorText = (error as Error).message;
@@ -1159,9 +1320,85 @@ export class Orchestrator {
       "- Understand the Global Objective to ensure your task aligns with the big picture.",
       "- Only modify files in writeScope.allow and never touch deny paths.",
       "- Produce at least one git commit.",
-      "- End with completion marker: __ORCH_DONE__: {\"status\":\"success\",\"files_changed\":[...],\"summary\":\"...\"}",
+      "- End with completion marker: __ORCH_DONE__: {\"status\":\"success\",\"files_changed\":[...],\"summary\":\"...\",\"research\":\"...\"}",
+      "- Use status \"replan\" if your research reveals that the current task DAG is fundamentally flawed or missing critical dependencies (e.g., \"status\":\"replan\",\"summary\":\"Need new library X before proceeding\").",
+      "- Use the 'research' field to capture architectural decisions, discovered conventions, or investigation results.",
+      "- If you discover a permanent architectural rule or project convention, prefix it with [AXIOM] in the research field (e.g., '[AXIOM] All physics calculations must run in FixedUpdate').",
       "- Do not change the overall objective or requirements."
     ].join("\n");
+  }
+
+  private injectWorktreeMemory(
+    ctx: RuntimeContext,
+    worktreePath: string,
+    task: TaskContract,
+    stateByTask: Map<string, TaskRecord>
+  ): void {
+    const run = ctx.run;
+    const repairEvents = ctx.db.listRepairEvents(run.runId, task.taskId);
+    const axioms = ctx.db.listAxioms(run.runId);
+    // Tier 1: Active Memory (Sliding Window - last 5 verified tasks)
+    const recentTasks = ctx.db.listRecentVerifiedTasks(run.runId, 5);
+
+    const memory = [
+      `# Run Context & Memory`,
+      `**Run ID:** ${run.runId}`,
+      `**Global Objective:** ${run.objective}`,
+      ""
+    ];
+
+    // Tier 3: Persistent Research Ledger (Knowledge Graph / Axioms)
+    if (axioms.length > 0) {
+      memory.push("## Project Axioms (Architectural Rules)");
+      for (const axiom of axioms) {
+        memory.push(`- **[AXIOM]:** ${axiom.content}`);
+      }
+      memory.push("");
+    }
+
+    // Tier 2: Condensed Memory (The Story So Far)
+    memory.push("## The Story So Far");
+    if (ctx.run.narrativeSummary) {
+      memory.push(ctx.run.narrativeSummary);
+    } else if (recentTasks.length > 0) {
+      const latest = recentTasks[0]!;
+      memory.push(`Most recently, ${latest.taskId} was completed: ${latest.summary || "No summary provided."}`);
+    } else {
+      memory.push("Project initialized and core architectural foundations are being established.");
+    }
+    memory.push("");
+
+    // Tier 1: Active Memory (The Sliding Window)
+    memory.push("## Active Memory (Recent Progress)");
+    if (recentTasks.length > 0) {
+      for (const t of recentTasks) {
+        memory.push(`### ${t.taskId} (Completed)`);
+        if (t.summary) {
+          memory.push(`**Summary:** ${t.summary}`);
+        }
+        if (t.research) {
+          memory.push(`**Research Findings:**\n${t.research}`);
+        }
+        memory.push("");
+      }
+    } else {
+      memory.push("No tasks have been verified in Active Memory yet.");
+      memory.push("");
+    }
+
+    if (repairEvents.length > 0) {
+      memory.push("## Repair History (Current Task)");
+      memory.push("This task has failed previously. Learn from these failures:");
+      for (const event of repairEvents) {
+        memory.push(`- **Attempt ${event.attempt} (${event.failureClass}):** ${event.details}`);
+      }
+      memory.push("");
+    }
+
+    const dotGeminiDir = join(worktreePath, ".gemini");
+    mkdirSync(dotGeminiDir, { recursive: true });
+    writeFileSync(join(dotGeminiDir, "run_context.md"), memory.join("\n"), "utf8");
+    writeFileSync(join(worktreePath, "GEMINI.md"), memory.join("\n"), "utf8");
   }
 
   private resourceKeys(task: TaskContract): string[] {

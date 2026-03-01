@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { Orchestrator, printJson, type ProgressUpdate } from "../../core/orchestrator.js";
+import { maybeBootstrapRepo, type BootstrapTemplate } from "../repo-bootstrap.js";
 
 interface RunOptions {
   concurrency?: number;
@@ -16,6 +17,8 @@ interface RunOptions {
   upgradeProviders?: "warn" | "never" | "prompt" | "required";
   nonInteractive?: boolean;
   json?: boolean;
+  bootstrap?: boolean;
+  bootstrapTemplate?: BootstrapTemplate;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -35,8 +38,25 @@ export function registerRunCommand(program: Command): void {
     .option("--install-missing <mode>", "prompt|never|auto", "prompt")
     .option("--upgrade-providers <mode>", "warn|never|prompt|required", "warn")
     .option("--non-interactive", "disable interactive prompts")
+    .option("--bootstrap", "create/init repository before running")
+    .option("--bootstrap-template <template>", "blank|web-game-ts", parseBootstrapTemplate, "blank")
     .option("--json", "print JSON outcome")
     .action(async (prompt: string, opts: RunOptions) => {
+      const bootstrapResult = opts.bootstrap
+        ? await maybeBootstrapRepo({
+            repo: opts.repo,
+            bootstrap: opts.bootstrap,
+            bootstrapTemplate: opts.bootstrapTemplate
+          })
+        : undefined;
+
+      if (bootstrapResult && !opts.json) {
+        const createdCount = bootstrapResult.createdFiles.length;
+        process.stderr.write(
+          `Bootstrap ready: repo=${bootstrapResult.repoPath}, gitInit=${bootstrapResult.initializedGit}, filesCreated=${createdCount}, initialCommit=${bootstrapResult.createdInitialCommit}\n`
+        );
+      }
+
       const orchestrator = new Orchestrator();
       const onProgress = opts.json ? undefined : (update: ProgressUpdate) => {
         const tags = [update.stage];
@@ -89,4 +109,11 @@ function parseInteger(value: string): number {
     throw new Error(`Invalid integer value: ${value}`);
   }
   return parsed;
+}
+
+function parseBootstrapTemplate(value: string): BootstrapTemplate {
+  if (value === "blank" || value === "web-game-ts") {
+    return value;
+  }
+  throw new Error(`Invalid bootstrap template: ${value}`);
 }

@@ -18,11 +18,19 @@ const { orchestratorMock, printJsonMock } = vi.hoisted(() => {
   return { orchestratorMock: mock, printJsonMock: vi.fn() };
 });
 
+const { bootstrapRepoMock } = vi.hoisted(() => ({
+  bootstrapRepoMock: vi.fn()
+}));
+
 vi.mock("../../src/core/orchestrator.js", () => ({
   // Regular function (not arrow) to work as a constructor
   Orchestrator: function Orchestrator() { return orchestratorMock; },
   printJson: printJsonMock,
   formatJson: (v: unknown) => JSON.stringify(v)
+}));
+
+vi.mock("../../src/cli/repo-bootstrap.js", () => ({
+  maybeBootstrapRepo: bootstrapRepoMock
 }));
 
 import { registerRunCommand } from "../../src/cli/commands/run.js";
@@ -53,6 +61,8 @@ describe("run command", () => {
   beforeEach(() => {
     orchestratorMock.run.mockReset();
     printJsonMock.mockClear();
+    bootstrapRepoMock.mockReset();
+    bootstrapRepoMock.mockResolvedValue(undefined);
     consoleSpy.mockClear();
     stderrSpy.mockClear();
   });
@@ -117,6 +127,38 @@ describe("run command", () => {
     expect(orchestratorMock.run.mock.calls[0]![0].dryRun).toBe(true);
   });
 
+  it("calls bootstrap when --bootstrap is provided", async () => {
+    orchestratorMock.run.mockResolvedValue({ runId: "r1", state: "COMPLETED", summary: {} });
+
+    const program = makeProgram();
+    registerRunCommand(program);
+    await parseAsync(program, [
+      "run",
+      "test",
+      "--repo",
+      "C:\\tmp\\snake-game",
+      "--bootstrap",
+      "--bootstrap-template",
+      "web-game-ts"
+    ]);
+
+    expect(bootstrapRepoMock).toHaveBeenCalledWith({
+      repo: "C:\\tmp\\snake-game",
+      bootstrap: true,
+      bootstrapTemplate: "web-game-ts"
+    });
+  });
+
+  it("does not call bootstrap without --bootstrap", async () => {
+    orchestratorMock.run.mockResolvedValue({ runId: "r1", state: "COMPLETED", summary: {} });
+
+    const program = makeProgram();
+    registerRunCommand(program);
+    await parseAsync(program, ["run", "test", "--repo", "C:\\tmp\\snake-game"]);
+
+    expect(bootstrapRepoMock).not.toHaveBeenCalled();
+  });
+
   it("parses --concurrency as integer", async () => {
     orchestratorMock.run.mockResolvedValue({ runId: "r1", state: "COMPLETED", summary: {} });
 
@@ -131,6 +173,14 @@ describe("run command", () => {
     const program = makeProgram();
     registerRunCommand(program);
     await expect(parseAsync(program, ["run", "test", "--concurrency", "abc"])).rejects.toThrow();
+  });
+
+  it("throws when --bootstrap-template has an invalid value", async () => {
+    const program = makeProgram();
+    registerRunCommand(program);
+    await expect(
+      parseAsync(program, ["run", "test", "--bootstrap-template", "unknown-template"])
+    ).rejects.toThrow("Invalid bootstrap template");
   });
 
   it("prints JSON output when --json flag is set", async () => {

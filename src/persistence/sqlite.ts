@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
-import type { ProviderHealthSnapshot, RunRecord, TaskRecord } from "../core/types.js";
+import type { ProviderHealthSnapshot, RunRecord, TaskRecord, ProjectAxiom } from "../core/types.js";
 import type { ReasonCode } from "../core/reason-codes.js";
 
 export interface OrchestratorDbOptions {
@@ -68,6 +68,9 @@ export class OrchestratorDb {
       this.ensureColumn("provider_health", "backoff_sec", "INTEGER NOT NULL DEFAULT 0");
       this.ensureColumn("resume_checkpoints", "task_id", "TEXT");
       this.ensureColumn("resume_checkpoints", "state", "TEXT");
+      this.ensureColumn("tasks", "summary", "TEXT");
+      this.ensureColumn("tasks", "research", "TEXT");
+      this.ensureColumn("runs", "narrative_summary", "TEXT");
     });
   }
 
@@ -92,8 +95,8 @@ export class OrchestratorDb {
     this.withBusyRetry("upsertRun", () => {
       this.db
         .prepare(
-          `INSERT INTO runs(run_id, objective, repo_path, baseline_commit, config_hash, state, created_at, updated_at, reason_code)
-           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO runs(run_id, objective, repo_path, baseline_commit, config_hash, state, created_at, updated_at, reason_code, narrative_summary)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(run_id) DO UPDATE SET
              objective=excluded.objective,
              repo_path=excluded.repo_path,
@@ -101,7 +104,8 @@ export class OrchestratorDb {
              config_hash=excluded.config_hash,
              state=excluded.state,
              updated_at=excluded.updated_at,
-             reason_code=excluded.reason_code`
+             reason_code=excluded.reason_code,
+             narrative_summary=excluded.narrative_summary`
         )
         .run(
           run.runId,
@@ -112,7 +116,8 @@ export class OrchestratorDb {
           run.state,
           run.createdAt,
           run.updatedAt,
-          run.reasonCode ?? null
+          run.reasonCode ?? null,
+          run.narrativeSummary ?? null
         );
     });
   }
@@ -121,8 +126,8 @@ export class OrchestratorDb {
     this.withBusyRetry("upsertTask", () => {
       if (!this.upsertTaskStmt) {
         this.upsertTaskStmt = this.db.prepare(
-          `INSERT INTO tasks(run_id, task_id, provider, type, state, attempts, contract_hash, lease_token, commit_hash, reason_code)
-           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO tasks(run_id, task_id, provider, type, state, attempts, contract_hash, lease_token, commit_hash, reason_code, summary, research)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(run_id, task_id) DO UPDATE SET
              provider=excluded.provider,
              type=excluded.type,
@@ -131,7 +136,9 @@ export class OrchestratorDb {
              contract_hash=excluded.contract_hash,
              lease_token=excluded.lease_token,
              commit_hash=excluded.commit_hash,
-             reason_code=excluded.reason_code`
+             reason_code=excluded.reason_code,
+             summary=excluded.summary,
+             research=excluded.research`
         );
       }
       this.upsertTaskStmt.run(
@@ -144,7 +151,9 @@ export class OrchestratorDb {
         task.contractHash,
         task.leaseToken ?? null,
         task.commitHash ?? null,
-        task.reasonCode ?? null
+        task.reasonCode ?? null,
+        task.summary ?? null,
+        task.research ?? null
       );
     });
   }
@@ -478,6 +487,7 @@ export class OrchestratorDb {
             created_at: string;
             updated_at: string;
             reason_code: string | null;
+            narrative_summary: string | null;
           }
         | undefined;
     });
@@ -495,7 +505,8 @@ export class OrchestratorDb {
       state: row.state as RunRecord["state"],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      reasonCode: (row.reason_code ?? undefined) as ReasonCode | undefined
+      reasonCode: (row.reason_code ?? undefined) as ReasonCode | undefined,
+      narrativeSummary: row.narrative_summary ?? undefined
     };
   }
 
@@ -512,6 +523,8 @@ export class OrchestratorDb {
         lease_token: number | null;
         commit_hash: string | null;
         reason_code: string | null;
+        summary: string | null;
+        research: string | null;
       }>;
     });
 
@@ -525,7 +538,87 @@ export class OrchestratorDb {
       contractHash: row.contract_hash,
       leaseToken: row.lease_token ?? undefined,
       commitHash: row.commit_hash ?? undefined,
-      reasonCode: (row.reason_code ?? undefined) as ReasonCode | undefined
+      reasonCode: (row.reason_code ?? undefined) as ReasonCode | undefined,
+      summary: row.summary ?? undefined,
+      research: row.research ?? undefined
+    }));
+  }
+
+  public upsertAxiom(axiom: ProjectAxiom): void {
+    this.withBusyRetry("upsertAxiom", () => {
+      this.db
+        .prepare(
+          `INSERT INTO project_axioms(run_id, axiom_id, content, source_task_id, created_at)
+           VALUES(?, ?, ?, ?, ?)
+           ON CONFLICT(axiom_id) DO UPDATE SET
+             content=excluded.content,
+             source_task_id=excluded.source_task_id,
+             created_at=excluded.created_at`
+        )
+        .run(axiom.runId, axiom.axiomId, axiom.content, axiom.sourceTaskId, axiom.createdAt);
+    });
+  }
+
+  public listAxioms(runId: string): ProjectAxiom[] {
+    const rows = this.withBusyRetry("listAxioms", () => {
+      return this.db
+        .prepare(`SELECT * FROM project_axioms WHERE run_id=? ORDER BY created_at ASC`)
+        .all(runId) as Array<{
+        run_id: string;
+        axiom_id: string;
+        content: string;
+        source_task_id: string;
+        created_at: string;
+      }>;
+    });
+
+    return rows.map((row) => ({
+      runId: row.run_id,
+      axiomId: row.axiom_id,
+      content: row.content,
+      sourceTaskId: row.source_task_id,
+      createdAt: row.created_at
+    }));
+  }
+
+  public listRecentVerifiedTasks(runId: string, limit: number): TaskRecord[] {
+    const rows = this.withBusyRetry("listRecentVerifiedTasks", () => {
+      return this.db
+        .prepare(
+          `SELECT * FROM tasks
+           WHERE run_id=? AND state='VERIFIED'
+           ORDER BY task_id DESC -- task_id is usually orch/run/task-N, so DESC gives recent
+           LIMIT ?`
+        )
+        .all(runId, limit) as Array<{
+        run_id: string;
+        task_id: string;
+        provider: string;
+        type: string;
+        state: string;
+        attempts: number;
+        contract_hash: string;
+        lease_token: number | null;
+        commit_hash: string | null;
+        reason_code: string | null;
+        summary: string | null;
+        research: string | null;
+      }>;
+    });
+
+    return rows.map((row) => ({
+      runId: row.run_id,
+      taskId: row.task_id,
+      provider: row.provider as TaskRecord["provider"],
+      type: row.type,
+      state: row.state as TaskRecord["state"],
+      attempts: row.attempts,
+      contractHash: row.contract_hash,
+      leaseToken: row.lease_token ?? undefined,
+      commitHash: row.commit_hash ?? undefined,
+      reasonCode: (row.reason_code ?? undefined) as ReasonCode | undefined,
+      summary: row.summary ?? undefined,
+      research: row.research ?? undefined
     }));
   }
 

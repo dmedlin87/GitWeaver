@@ -74,6 +74,17 @@ pnpm build
 pnpm dev run "Implement a new authentication middleware for the API"
 ```
 
+**Bootstrap and run against a brand-new repo in one command:**
+
+```bash
+orchestrator run "Build a Snake game in TypeScript with tests" \
+  --repo C:\Users\you\Projects\snake-game \
+  --bootstrap \
+  --bootstrap-template web-game-ts
+```
+
+This creates the target folder (if needed), initializes git, scaffolds starter files, creates an initial commit, then starts orchestration.
+
 ---
 
 ## ⚔️ Commands
@@ -82,7 +93,7 @@ pnpm dev run "Implement a new authentication middleware for the API"
 
 | Command | Description |
 | :--- | :--- |
-| `orchestrator run "<prompt>"` | Start a new workflow. Custom flags: `--concurrency N`, `--dry-run`, `--dry-run-report basic\|detailed`, `--execution-mode host\|container`, `--container-runtime docker\|podman`, `--container-image <image>`, `--config path`, `--repo path`, `--allow-baseline-repair`, `--accept-drift` |
+| `orchestrator run "<prompt>"` | Start a new workflow. Custom flags: `--concurrency N`, `--dry-run`, `--dry-run-report basic\|detailed`, `--execution-mode host\|container`, `--container-runtime docker\|podman`, `--container-image <image>`, `--config path`, `--repo path`, `--bootstrap`, `--bootstrap-template blank\|web-game-ts`, `--allow-baseline-repair`, `--accept-drift` |
 | `orchestrator resume <run-id>` | Resume an existing run. Flag: `--accept-drift` |
 | `orchestrator status <run-id>` | Check run status (`--json` supported) |
 | `orchestrator inspect <run-id>` | Inspect run details (`--task <id>`, `--json`) |

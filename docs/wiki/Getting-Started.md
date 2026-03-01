@@ -78,6 +78,30 @@ Or in dev mode from the GitWeaver directory:
 pnpm dev run "Add error handling to all API endpoints" --repo /path/to/your/project
 ```
 
+## One-Command New Repo Bootstrap
+
+If you want to start from a brand-new folder, `run` can bootstrap the repo first:
+
+```bash
+orchestrator run "Build a Snake game in TypeScript with tests" \
+  --repo C:\Users\you\Projects\snake-game \
+  --bootstrap \
+  --bootstrap-template web-game-ts
+```
+
+What bootstrap does:
+
+- Creates the target folder (if it does not exist)
+- Initializes a git repository (if needed)
+- Scaffolds starter files from template (`blank` or `web-game-ts`)
+- Creates an initial commit when the repo has no commits yet
+- Continues with the normal orchestration run
+
+Notes:
+
+- `--bootstrap` requires `--repo <path>`
+- Existing files are not overwritten during scaffolding
+
 ### Dry Run (Preview Only)
 
 To see the generated plan without executing anything:

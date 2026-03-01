@@ -1,7 +1,8 @@
 export interface CompletionMarker {
-  status: "success" | "fail";
+  status: "success" | "fail" | "replan";
   files_changed: string[];
   summary: string;
+  research?: string;
 }
 
 const MARKER_PREFIX = "__ORCH_DONE__:";

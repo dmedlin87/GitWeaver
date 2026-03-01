@@ -22,6 +22,25 @@ export class Scheduler {
     this.queue.enqueue(task.taskId, task, priority);
   }
 
+  public add(task: ScheduledTask): void {
+    this.enqueue(task);
+  }
+
+  public listPending(): string[] {
+    return this.queue.keys();
+  }
+
+  public cancel(taskId: string): void {
+    this.queue.remove(taskId);
+  }
+
+  public updateContract(task: ScheduledTask): void {
+    const existing = this.queue.get(task.taskId);
+    if (existing) {
+      this.queue.enqueue(task.taskId, task, existing.priority ?? 0);
+    }
+  }
+
   public tryDispatch(
     canDispatch?: (task: ScheduledTask) => boolean,
     reroute?: (task: ScheduledTask) => ScheduledTask | null

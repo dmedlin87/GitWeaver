@@ -200,6 +200,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
         removeLeasesByTask: () => {},
         transaction: (fn: any) => fn(),
         recordRepairEvent: () => {},
+        listRepairEvents: () => [],
         upsertRun: () => {},
         upsertProviderHealth: () => {},
         upsertResumeCheckpoint: () => {}

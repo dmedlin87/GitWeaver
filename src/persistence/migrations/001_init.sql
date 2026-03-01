@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS runs (
   state TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  reason_code TEXT
+  reason_code TEXT,
+  narrative_summary TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -21,6 +22,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   lease_token INTEGER,
   commit_hash TEXT,
   reason_code TEXT,
+  summary TEXT,
+  research TEXT,
   PRIMARY KEY (run_id, task_id)
 );
 
@@ -101,6 +104,14 @@ CREATE TABLE IF NOT EXISTS repair_events (
   details TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY (run_id, task_id, failure_class, attempt)
+);
+
+CREATE TABLE IF NOT EXISTS project_axioms (
+  run_id TEXT NOT NULL,
+  axiom_id TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  source_task_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS resume_checkpoints (

@@ -143,6 +143,7 @@ describe("Orchestrator Policy Enforcement", () => {
         removeLeasesByTask: () => {},
         transaction: (fn: any) => fn(),
         recordRepairEvent: () => {},
+        listRepairEvents: () => [],
         upsertRun: () => {}, // Added mock for upsertRun called by persistRun
         upsertProviderHealth: () => {},
         upsertResumeCheckpoint: () => {}

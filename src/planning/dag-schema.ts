@@ -44,10 +44,30 @@ const taskContractSchema = z.object({
   contractHash: z.string().optional()
 });
 
-export const dagSchema = z.object({
-  nodes: z.array(taskContractSchema).min(1),
-  edges: z.array(z.object({ from: z.string(), to: z.string() })).default([])
+const looseTaskSchema = z.object({
+  id: z.string().optional(),
+  taskId: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  goal: z.string().optional(),
+  provider: z.enum(["codex", "claude", "gemini"]).optional().default("claude"),
+  type: z.enum(["code", "refactor", "test", "docs", "deps", "repair"]).optional().default("code"),
+  dependencies: z.array(z.string()).default([]),
+  write_scopes: z.array(z.string()).optional(),
+  writeScope: writeScopeSchema.optional(),
+  command_policy: z.union([z.string(), z.array(z.string())]).optional(),
+  commandPolicy: z.any().optional()
 });
+
+export const dagSchema = z.union([
+  z.object({
+    nodes: z.array(taskContractSchema).min(1),
+    edges: z.array(z.object({ from: z.string(), to: z.string() })).default([])
+  }),
+  z.object({
+    tasks: z.array(looseTaskSchema).min(1)
+  })
+]);
 
 export type DagInput = z.input<typeof dagSchema>;
 
@@ -88,7 +108,47 @@ function hashTask(task: Omit<TaskContract, "contractHash">): string {
 }
 
 export function validateDag(input: unknown): DagSpec {
-  const parsed = dagSchema.parse(input);
+  const rawParsed = dagSchema.parse(input);
+  
+  if ("tasks" in rawParsed) {
+    // Normalize loose tasks format to strict nodes/edges
+    const nodes: TaskContract[] = rawParsed.tasks.map(t => {
+      const taskId = t.taskId || t.id || `task-${Math.random().toString(36).slice(2, 7)}`;
+      const title = t.title || t.description || t.goal || taskId;
+      const allow = t.writeScope?.allow || t.write_scopes || ["./"];
+      
+      const withoutHash = {
+        taskId,
+        title,
+        provider: t.provider as any,
+        type: t.type as any,
+        dependencies: t.dependencies,
+        writeScope: {
+          allow,
+          deny: t.writeScope?.deny || [],
+          ownership: t.writeScope?.ownership || "exclusive",
+          sharedKey: t.writeScope?.sharedKey || undefined
+        },
+        commandPolicy: {
+          allow: Array.isArray(t.command_policy) ? t.command_policy : (typeof t.command_policy === "string" ? [t.command_policy] : []),
+          deny: [],
+          network: "deny" as const
+        },
+        expected: {},
+        verify: { outputVerificationRequired: true },
+        artifactIO: {}
+      };
+      return {
+        ...withoutHash,
+        contractHash: hashTask(withoutHash as any)
+      };
+    });
+    const spec = { nodes, edges: [] };
+    ensureAcyclic(spec);
+    return { ...spec, dagHash: sha256(stableStringify(spec)) };
+  }
+
+  const parsed = rawParsed as { nodes: any[], edges: any[] };
   const nodes: TaskContract[] = parsed.nodes.map((node) => {
     const withoutHash = {
       taskId: node.taskId,
@@ -104,7 +164,7 @@ export function validateDag(input: unknown): DagSpec {
       expected: {
         files: node.expected.files ?? undefined,
         exports: node.expected.exports ?? undefined,
-        tests: node.expected.tests?.map((test) => ({
+        tests: node.expected.tests?.map((test: { file: string; contains?: string | null }) => ({
           file: test.file,
           contains: test.contains ?? undefined
         })) ?? undefined

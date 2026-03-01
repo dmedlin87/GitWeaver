@@ -15,7 +15,7 @@ function baselineFiles(): string[] {
 
 function addIfExists(repoPath: string, rel: string, reason: string, tier: Candidate["tier"], out: Candidate[]): void {
   const absolute = join(repoPath, rel);
-  if (existsSync(absolute)) {
+  if (existsSync(absolute) && statSync(absolute).isFile()) {
     out.push({ path: rel, reason, tier });
   }
 }
