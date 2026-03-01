@@ -1,0 +1,31 @@
+diff --git a/src/providers/router.ts b/src/providers/router.ts
+index 82f20ac..20f7107 100644
+--- a/src/providers/router.ts
++++ b/src/providers/router.ts
+@@ -6,24 +6,8 @@ const FALLBACK_ORDER: Record<ProviderId, ProviderId[]> = {
+   codex: ["claude", "gemini"]
+ };
+ 
+-function preferredProvider(type: TaskType): { provider: ProviderId; reason: string } {
+-  switch (type) {
+-    case "code":
+-    case "refactor":
+-    case "ui":
+-    case "multimodal":
+-      return { provider: "claude", reason: "task type prefers Claude for implementation-heavy work" };
+-    case "test":
+-    case "repair":
+-    case "audit":
+-      return { provider: "codex", reason: "task type prefers Codex for deterministic verification and repair loops" };
+-    case "docs":
+-    case "deps":
+-    case "plan":
+-      return { provider: "claude", reason: "task type prefers Claude for planning and documentation synthesis" };
+-    default:
+-      return { provider: "claude", reason: "default provider preference is Claude" };
+-  }
++function preferredProvider(_type: TaskType): { provider: ProviderId; reason: string } {
++  return { provider: "gemini", reason: "gemini-flash active for all task types (temporary)" };
+ }
+ 
+ function providerHealthy(health: ProviderHealthSnapshot | undefined): boolean {

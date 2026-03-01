@@ -5,6 +5,7 @@ export interface ProviderExecutionRequest {
   cwd: string;
   timeoutMs: number;
   outputSchemaPath?: string;
+  promptViaStdin?: boolean;
   env?: NodeJS.ProcessEnv;
   executionMode?: "host" | "container";
   containerRuntime?: "docker" | "podman";

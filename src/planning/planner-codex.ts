@@ -23,6 +23,7 @@ const PLANNER_SCHEMA = {
   properties: {
     nodes: {
       type: "array",
+      minItems: 1,
       items: {
         type: "object",
         additionalProperties: false,
@@ -149,18 +150,12 @@ function plannerPrompt(objective: string, repoContext: string, pendingTasks?: Ta
   return lines.join("\n");
 }
 
-function plannerProviderOrder(objective: string, options: PlannerOptions = {}): ProviderId[] {
+function plannerProviderOrder(_objective: string, options: PlannerOptions = {}): ProviderId[] {
   if (options.plannerProvider) {
     return [options.plannerProvider];
   }
-
-  const normalized = objective.toLowerCase();
-  const docsFocused = /\b(doc|docs|readme|changelog|comment|guide|wiki)\b/u.test(normalized);
-  if (docsFocused) {
-    return ["claude", "codex"];
-  }
-
-  return ["codex", "claude"];
+  // Temporary: route all planning through Gemini Flash
+  return ["gemini", "claude"];
 }
 
 export function extractJsonPayload(raw: string): unknown {
@@ -289,6 +284,7 @@ export async function generateDagWithCodex(
   } catch {}
 
   let lastError: Error | undefined;
+  let lastReasonCode: string = REASON_CODES.PLAN_PROVIDER_FAILED;
   let raw = "";
   const providers = plannerProviderOrder(objective, options);
 
@@ -296,19 +292,33 @@ export async function generateDagWithCodex(
     const provider = providers[attempt - 1]!;
     const adapter = getProviderAdapter(provider);
     process.stdout.write(`Planning attempt ${attempt}/${providers.length} with ${provider}...\n`);
-    const result = await adapter.execute({
-      prompt: plannerPrompt(objective, repoContext, pendingTasks),
-      cwd,
-      timeoutMs: 180_000,
-      executionMode: "host",
-      ...(provider === "codex" ? { outputSchemaPath: schemaPath } : {})
-    });
+
+    let result: Awaited<ReturnType<typeof adapter.execute>>;
+    try {
+      result = await adapter.execute({
+        prompt: plannerPrompt(objective, repoContext, pendingTasks),
+        cwd,
+        timeoutMs: 180_000,
+        executionMode: "host",
+        promptViaStdin: true,
+        ...(provider === "codex" ? { outputSchemaPath: schemaPath } : {})
+      });
+    } catch (execError) {
+      const msg = (execError as Error).message ?? String(execError);
+      process.stdout.write(`Attempt ${attempt} threw: ${msg}\n`);
+      lastError = execError as Error;
+      lastReasonCode = REASON_CODES.PLAN_PROVIDER_FAILED;
+      continue;
+    }
 
     raw = result.stdout;
 
     if (result.exitCode !== 0) {
+      const detail = (result.stderr || result.stdout).slice(0, 500);
       process.stdout.write(`Attempt ${attempt} failed with exit code ${result.exitCode}.\n`);
+      process.stdout.write(`Provider output: ${detail}\n`);
       lastError = new Error(`Planner provider ${provider} failed (attempt ${attempt}): ${result.stderr || result.stdout}`);
+      lastReasonCode = REASON_CODES.PLAN_PROVIDER_FAILED;
       continue;
     }
 
@@ -320,12 +330,13 @@ export async function generateDagWithCodex(
     } catch (error) {
       process.stdout.write(`Attempt ${attempt} failed schema validation: ${(error as Error).message}\n`);
       lastError = error as Error;
+      lastReasonCode = REASON_CODES.PLAN_SCHEMA_INVALID;
     }
   }
 
   const failure = new Error(
     `Planner failed after trying providers (${providers.join(", ")}): ${lastError?.message ?? REASON_CODES.PLAN_PROVIDER_FAILED}`
   );
-  (failure as Error & { reasonCode?: string }).reasonCode = REASON_CODES.PLAN_SCHEMA_INVALID;
+  (failure as Error & { reasonCode?: string }).reasonCode = lastReasonCode;
   throw failure;
 }

@@ -36,10 +36,14 @@ const tempDirs: string[] = [];
 vi.mock("../../src/scheduler/lock-manager.js", () => ({
   LockManager: class {
     constructor() {}
-    tryAcquireWrite() { return [{ resourceKey: "file:test.ts", fencingToken: 1 }]; }
-    validateFencing() { return true; }
+    tryAcquireWrite() {
+      return [{ resourceKey: "file:test.ts", fencingToken: 1 }];
+    }
+    validateFencing() {
+      return true;
+    }
     releaseOwner() {}
-  }
+  },
 }));
 
 vi.mock("../../src/scheduler/lease-heartbeat.js", () => ({
@@ -47,78 +51,92 @@ vi.mock("../../src/scheduler/lease-heartbeat.js", () => ({
     constructor() {}
     start() {}
     stopOwner() {}
-  }
+  },
 }));
 
 vi.mock("../../src/scheduler/merge-queue.js", () => ({
   MergeQueue: class {
     constructor() {}
-    enqueue(fn: () => Promise<void>) { return fn(); }
-  }
+    enqueue(fn: () => Promise<void>) {
+      return fn();
+    }
+  },
 }));
 
 vi.mock("../../src/execution/worktree-manager.js", () => ({
   WorktreeManager: class {
     constructor() {}
-    create() { return { path: "/tmp/worktree", branch: "orch/run/task" }; }
-    remove() { return Promise.resolve(); }
-  }
+    create() {
+      return { path: "/tmp/worktree", branch: "orch/run/task" };
+    }
+    remove() {
+      return Promise.resolve();
+    }
+  },
 }));
 
 vi.mock("../../src/providers/adapters/index.js", () => ({
   getProviderAdapter: () => ({
     execute: async () => {
       if (adapterHangMs > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, adapterHangMs));
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, adapterHangMs),
+        );
       }
       return mockAdapterExecution;
-    }
-  })
+    },
+  }),
 }));
 
 vi.mock("../../src/verification/post-merge-gate.js", () => ({
-  runGate: async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "", command: "gate" })
+  runGate: async () => ({
+    ok: true,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    command: "gate",
+  }),
 }));
 
 vi.mock("../../src/verification/commit-analyzer.js", () => ({
   latestCommit: async () => "hash123",
-  analyzeCommit: async () => ({ changedFiles: ["src/test.ts"] })
+  analyzeCommit: async () => ({ changedFiles: ["src/test.ts"] }),
 }));
 
 vi.mock("../../src/verification/scope-policy.js", () => ({
-  evaluateScope: () => ({ allowed: true, violations: [] })
+  evaluateScope: () => ({ allowed: true, violations: [] }),
 }));
 
 vi.mock("../../src/verification/output-verifier.js", () => ({
-  verifyTaskOutput: () => ({ ok: true })
+  verifyTaskOutput: () => ({ ok: true }),
 }));
 
 vi.mock("../../src/verification/staleness.js", () => ({
   collectArtifactSignatures: vi.fn(() => ({})),
   detectStaleness: vi.fn(async () => ({ stale: false, reasons: [] })),
-  artifactKey: () => "key"
+  artifactKey: () => "key",
 }));
 
 vi.mock("../../src/execution/sandbox-env.js", () => ({
   createSandboxHome: async () => "/tmp/sandbox-home",
-  buildSandboxEnv: (env: NodeJS.ProcessEnv) => env
+  buildSandboxEnv: (env: NodeJS.ProcessEnv) => env,
 }));
 
 vi.mock("../../src/core/shell.js", () => ({
-  runCommand: async () => ({ code: 0, stdout: "commit message", stderr: "" })
+  runCommand: async () => ({ code: 0, stdout: "commit message", stderr: "" }),
 }));
 
 vi.mock("../../src/planning/context-pack.js", () => ({
-  buildContextPack: () => ({ contextPackHash: "ctx-hash" })
+  buildContextPack: () => ({ contextPackHash: "ctx-hash" }),
 }));
 
 vi.mock("../../src/planning/prompt-envelope.js", () => ({
   buildPromptEnvelope: () => ({
     immutableSectionsHash: "imm-hash",
     taskContractHash: "contract-hash",
-    contextPackHash: "ctx-hash"
+    contextPackHash: "ctx-hash",
   }),
-  assertPromptDrift: () => {}
+  assertPromptDrift: () => {},
 }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -133,7 +151,7 @@ function makeTask(taskId: string) {
     verify: { gateCommand: "pnpm test", outputVerificationRequired: false },
     artifactIO: {},
     expected: {},
-    contractHash: "hash"
+    contractHash: "hash",
   };
 }
 
@@ -147,10 +165,12 @@ function callExecuteTask(
   ctx: unknown,
   task: unknown,
   record: unknown,
-  budget: { increment: () => number; allowed: () => boolean } = BUDGET_ALLOW
+  budget: { increment: () => number; allowed: () => boolean } = BUDGET_ALLOW,
 ) {
   return (orchestrator as any).executeTask(
-    ctx, task, record,
+    ctx,
+    task,
+    record,
     new LockManager(1000),
     new LeaseHeartbeat(new LockManager(1000), 1000),
     new MergeQueue(),
@@ -158,7 +178,7 @@ function callExecuteTask(
     budget,
     new Map(),
     new Map(),
-    new Map()
+    new Map(),
   );
 }
 
@@ -186,7 +206,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
         lockContentionRetryMax: 1,
         lockContentionBackoffMs: 1,
         heartbeatTimeoutSec: 60,
-        maxRepairAttemptsPerClass: 0
+        maxRepairAttemptsPerClass: 0,
       },
       db: {
         recordTaskAttempt: () => {},
@@ -203,20 +223,32 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
         listRepairEvents: () => [],
         upsertRun: () => {},
         upsertProviderHealth: () => {},
-        upsertResumeCheckpoint: () => {}
+        upsertResumeCheckpoint: () => {},
+        listAxioms: () => [],
+        listRecentVerifiedTasks: () => [],
       },
       events: { append: vi.fn(() => ({ seq: 1 })) },
       secureExecutor: {
         prepareEnvironment: (env: NodeJS.ProcessEnv) => env,
         networkAllowed: () => true,
-        modeName: () => "host"
+        modeName: () => "host",
       },
       providerHealth: {
-        onSuccess: (p: string) => ({ provider: p, score: 100, lastErrors: [], tokenBucket: 1 }),
-        onFailure: (p: string) => ({ provider: p, score: 0, lastErrors: [], tokenBucket: 1 })
+        onSuccess: (p: string) => ({
+          provider: p,
+          score: 100,
+          lastErrors: [],
+          tokenBucket: 1,
+        }),
+        onFailure: (p: string) => ({
+          provider: p,
+          score: 0,
+          lastErrors: [],
+          tokenBucket: 1,
+        }),
       },
       runDir: "/tmp/run-watchdog",
-      onProgress: () => {}
+      onProgress: () => {},
     };
   });
 
@@ -233,15 +265,19 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
   it("rejects with EXEC_FAILED when hung provider process returns non-zero exit code", async () => {
     // Simulates a watchdog-killed process: PtyManager resolves with the kill signal exit code.
     // Repair budget is exhausted so executeTask escalates and throws.
-    mockAdapterExecution = { exitCode: 130, stdout: "", stderr: "process killed by signal" };
+    mockAdapterExecution = {
+      exitCode: 130,
+      stdout: "",
+      stderr: "process killed by signal",
+    };
 
     const task = makeTask("task-hang-execfail");
     const record = { attempts: 0, state: "PENDING" };
 
     await expect(
-      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED)
+      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("task-hang-execfail")
+      message: expect.stringContaining("task-hang-execfail"),
     });
   });
 
@@ -255,10 +291,12 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     const record = { attempts: 0, state: "PENDING" };
 
     await expect(
-      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED)
+      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED),
     ).rejects.toBeDefined();
 
-    const finishCall = appendSpy.mock.calls.find((c) => c[1] === "TASK_PROVIDER_FINISH");
+    const finishCall = appendSpy.mock.calls.find(
+      (c) => c[1] === "TASK_PROVIDER_FINISH",
+    );
     expect(finishCall).toBeDefined();
     expect((finishCall?.[2] as { exitCode: number }).exitCode).toBe(137);
   });
@@ -273,7 +311,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     const record = { attempts: 0, state: "PENDING" };
 
     await expect(
-      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED)
+      callExecuteTask(orchestrator, ctx, task, record, BUDGET_EXHAUSTED),
     ).rejects.toBeDefined();
 
     const eventTypes = appendSpy.mock.calls.map((c) => c[1] as string);
@@ -308,7 +346,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await execPromise;
 
     const heartbeatCalls = appendSpy.mock.calls.filter(
-      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT"
+      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT",
     );
     expect(heartbeatCalls.length).toBeGreaterThanOrEqual(2);
   });
@@ -356,14 +394,14 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await execPromise;
 
     const countAfterResolve = appendSpy.mock.calls.filter(
-      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT"
+      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT",
     ).length;
 
     // Advance an additional 30 s after the adapter resolved — no more heartbeats
     await vi.advanceTimersByTimeAsync(30_000);
 
     const countLater = appendSpy.mock.calls.filter(
-      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT"
+      (c) => c[1] === "TASK_PROVIDER_HEARTBEAT",
     ).length;
 
     expect(countLater).toBe(countAfterResolve);
@@ -377,7 +415,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
       exitCode: 0,
       stdout: "",
       stderr: "",
-      rawOutput: "sensitive provider output"
+      rawOutput: "sensitive provider output",
     };
 
     const appendSpy = vi.fn(() => ({ seq: 1 }));
@@ -389,7 +427,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await callExecuteTask(orchestrator, ctx, task, record);
 
     const forensicCall = appendSpy.mock.calls.find(
-      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED"
+      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED",
     );
     expect(forensicCall).toBeUndefined();
   });
@@ -403,7 +441,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
       exitCode: 0,
       stdout: "",
       stderr: "",
-      rawOutput: "watchdog raw capture data"
+      rawOutput: "watchdog raw capture data",
     };
 
     const appendSpy = vi.fn(() => ({ seq: 1 }));
@@ -415,14 +453,20 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await callExecuteTask(orchestrator, ctx, task, record);
 
     const forensicCall = appendSpy.mock.calls.find(
-      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED"
+      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED",
     );
     expect(forensicCall).toBeDefined();
 
-    const payload = forensicCall?.[2] as { path: string; taskId: string; attempt: number };
+    const payload = forensicCall?.[2] as {
+      path: string;
+      taskId: string;
+      attempt: number;
+    };
     expect(payload.taskId).toBe("task-forensic-on");
     expect(existsSync(payload.path)).toBe(true);
-    expect(readFileSync(payload.path, "utf8")).toContain("watchdog raw capture data");
+    expect(readFileSync(payload.path, "utf8")).toContain(
+      "watchdog raw capture data",
+    );
   });
 
   it("forensic file path encodes taskId and attempt number", async () => {
@@ -430,7 +474,12 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     tempDirs.push(runDir);
     ctx.runDir = runDir;
     ctx.config.forensicRawLogs = true;
-    mockAdapterExecution = { exitCode: 0, stdout: "", stderr: "", rawOutput: "output" };
+    mockAdapterExecution = {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      rawOutput: "output",
+    };
 
     const appendSpy = vi.fn(() => ({ seq: 1 }));
     ctx.events.append = appendSpy;
@@ -442,7 +491,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await callExecuteTask(orchestrator, ctx, task, record);
 
     const forensicCall = appendSpy.mock.calls.find(
-      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED"
+      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED",
     );
     const path = (forensicCall?.[2] as { path: string }).path;
     expect(path).toContain("task-forensic-path");
@@ -467,7 +516,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
     await callExecuteTask(orchestrator, ctx, task, record);
 
     const forensicCall = appendSpy.mock.calls.find(
-      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED"
+      (c) => c[1] === "TASK_FORENSIC_RAW_CAPTURED",
     );
     expect(forensicCall).toBeUndefined();
   });

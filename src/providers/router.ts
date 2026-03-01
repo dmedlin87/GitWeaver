@@ -1,28 +1,50 @@
-import type { ProviderHealthSnapshot, ProviderId, RoutingDecision, TaskType } from "../core/types.js";
+import type {
+  ProviderHealthSnapshot,
+  ProviderId,
+  RoutingDecision,
+  TaskType,
+} from "../core/types.js";
 
 const FALLBACK_ORDER: Record<ProviderId, ProviderId[]> = {
   gemini: ["claude", "codex"],
   claude: ["codex", "gemini"],
-  codex: ["claude", "gemini"]
+  codex: ["claude", "gemini"],
 };
 
-function preferredProvider(type: TaskType): { provider: ProviderId; reason: string } {
+function preferredProvider(type: TaskType): {
+  provider: ProviderId;
+  reason: string;
+} {
   switch (type) {
     case "code":
     case "refactor":
     case "ui":
     case "multimodal":
-      return { provider: "claude", reason: "task type prefers Claude for implementation-heavy work" };
+      return {
+        provider: "claude",
+        reason: "task type prefers Claude for implementation-heavy work",
+      };
     case "test":
     case "repair":
     case "audit":
-      return { provider: "codex", reason: "task type prefers Codex for deterministic verification and repair loops" };
+      return {
+        provider: "codex",
+        reason:
+          "task type prefers Codex for deterministic verification and repair loops",
+      };
     case "docs":
     case "deps":
     case "plan":
-      return { provider: "claude", reason: "task type prefers Claude for planning and documentation synthesis" };
+      return {
+        provider: "claude",
+        reason:
+          "task type prefers Claude for planning and documentation synthesis",
+      };
     default:
-      return { provider: "claude", reason: "default provider preference is Claude" };
+      return {
+        provider: "claude",
+        reason: "default provider preference is Claude",
+      };
   }
 }
 
@@ -45,7 +67,7 @@ function providerHealthy(health: ProviderHealthSnapshot | undefined): boolean {
 
 export function rerouteOnDegradation(
   task: { type: TaskType; provider: ProviderId },
-  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>
+  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>,
 ): RoutingDecision | null {
   if (providerHealthy(healthByProvider[task.provider])) {
     return null;
@@ -55,14 +77,14 @@ export function rerouteOnDegradation(
 
 export function routeTask(
   type: TaskType,
-  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>
+  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>,
 ): RoutingDecision {
   const preferred = preferredProvider(type);
   const primaryHealth = healthByProvider[preferred.provider];
   if (providerHealthy(primaryHealth)) {
     return {
       provider: preferred.provider,
-      routingReason: preferred.reason
+      routingReason: preferred.reason,
     };
   }
 
@@ -72,7 +94,7 @@ export function routeTask(
         provider: fallback,
         fallbackProvider: preferred.provider,
         routingReason: preferred.reason,
-        fallbackReason: `${preferred.provider} degraded with score ${primaryHealth?.score ?? "unknown"}`
+        fallbackReason: `${preferred.provider} degraded with score ${primaryHealth?.score ?? "unknown"}`,
       };
     }
   }
@@ -80,6 +102,6 @@ export function routeTask(
   return {
     provider: preferred.provider,
     routingReason: preferred.reason,
-    fallbackReason: "No healthy fallback provider available"
+    fallbackReason: "No healthy fallback provider available",
   };
 }

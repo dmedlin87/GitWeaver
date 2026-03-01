@@ -8,7 +8,7 @@ export class GeminiAdapter implements ProviderAdapter {
   public async execute(request: ProviderExecutionRequest): Promise<ProviderExecutionResult> {
     // Force headless mode; stdin content is appended by Gemini to the prompt.
     // Without --prompt, Gemini may enter interactive mode and wait indefinitely.
-    const args = ["--prompt", "orchestrator_input", "--output-format", "json", "--approval-mode", "auto_edit"];
+    const args = ["--model", "flash", "--prompt", "orchestrator_input", "--output-format", "json", "--approval-mode", "auto_edit"];
     const result = request.executionMode === "container"
       ? await runInContainer({
           runtime: request.containerRuntime ?? "docker",

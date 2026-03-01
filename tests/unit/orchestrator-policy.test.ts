@@ -14,20 +14,29 @@ import { LeaseHeartbeat } from "../../src/scheduler/lease-heartbeat.js";
 import { MergeQueue } from "../../src/scheduler/merge-queue.js";
 import { WorktreeManager } from "../../src/execution/worktree-manager.js";
 
-let mockAdapterExecution: { exitCode: number; stdout: string; stderr: string; rawOutput?: string } = {
+let mockAdapterExecution: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  rawOutput?: string;
+} = {
   exitCode: 0,
   stdout: "",
-  stderr: ""
+  stderr: "",
 };
 const tempDirs: string[] = [];
 
 vi.mock("../../src/scheduler/lock-manager.js", () => ({
   LockManager: class {
     constructor() {}
-    tryAcquireWrite() { return [{ resourceKey: "file:test.ts", fencingToken: 1 }]; }
-    validateFencing() { return true; }
+    tryAcquireWrite() {
+      return [{ resourceKey: "file:test.ts", fencingToken: 1 }];
+    }
+    validateFencing() {
+      return true;
+    }
     releaseOwner() {}
-  }
+  },
 }));
 
 vi.mock("../../src/scheduler/lease-heartbeat.js", () => ({
@@ -35,69 +44,85 @@ vi.mock("../../src/scheduler/lease-heartbeat.js", () => ({
     constructor() {}
     start() {}
     stopOwner() {}
-  }
+  },
 }));
 
 vi.mock("../../src/scheduler/merge-queue.js", () => ({
   MergeQueue: class {
     constructor() {}
-    enqueue(fn: () => Promise<void>) { return fn(); }
-  }
+    enqueue(fn: () => Promise<void>) {
+      return fn();
+    }
+  },
 }));
 
 vi.mock("../../src/execution/worktree-manager.js", () => ({
   WorktreeManager: class {
     constructor() {}
-    create() { return { path: "/tmp/worktree", branch: "orch/run/task" }; }
-    remove() { return Promise.resolve(); }
-  }
+    create() {
+      return { path: "/tmp/worktree", branch: "orch/run/task" };
+    }
+    remove() {
+      return Promise.resolve();
+    }
+  },
 }));
 
 vi.mock("../../src/providers/adapters/index.js", () => ({
   getProviderAdapter: () => ({
-    execute: async () => mockAdapterExecution
-  })
+    execute: async () => mockAdapterExecution,
+  }),
 }));
 
 vi.mock("../../src/verification/post-merge-gate.js", () => ({
-  runGate: async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "", command: "gate" })
+  runGate: async () => ({
+    ok: true,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    command: "gate",
+  }),
 }));
 
 vi.mock("../../src/verification/commit-analyzer.js", () => ({
   latestCommit: async () => "hash123",
-  analyzeCommit: async () => ({ changedFiles: ["src/test.ts"] })
+  analyzeCommit: async () => ({ changedFiles: ["src/test.ts"] }),
 }));
 
 vi.mock("../../src/verification/scope-policy.js", () => ({
-  evaluateScope: () => ({ allowed: true, violations: [] })
+  evaluateScope: () => ({ allowed: true, violations: [] }),
 }));
 
 vi.mock("../../src/verification/output-verifier.js", () => ({
-  verifyTaskOutput: () => ({ ok: true })
+  verifyTaskOutput: () => ({ ok: true }),
 }));
 
 vi.mock("../../src/verification/staleness.js", () => ({
   collectArtifactSignatures: vi.fn(() => ({})),
   detectStaleness: vi.fn(async () => ({ stale: false, reasons: [] })),
-  artifactKey: () => "key"
+  artifactKey: () => "key",
 }));
 
 vi.mock("../../src/execution/sandbox-env.js", () => ({
   createSandboxHome: async () => "/tmp/sandbox-home",
-  buildSandboxEnv: (env: NodeJS.ProcessEnv) => env
+  buildSandboxEnv: (env: NodeJS.ProcessEnv) => env,
 }));
 
 vi.mock("../../src/core/shell.js", () => ({
-  runCommand: async () => ({ code: 0, stdout: "commit message", stderr: "" })
+  runCommand: async () => ({ code: 0, stdout: "commit message", stderr: "" }),
 }));
 
 vi.mock("../../src/planning/context-pack.js", () => ({
-  buildContextPack: () => ({ contextPackHash: "ctx-hash" })
+  buildContextPack: () => ({ contextPackHash: "ctx-hash" }),
 }));
 
 vi.mock("../../src/planning/prompt-envelope.js", () => ({
-  buildPromptEnvelope: () => ({ immutableSectionsHash: "imm-hash", taskContractHash: "contract-hash", contextPackHash: "ctx-hash" }),
-  assertPromptDrift: () => {}
+  buildPromptEnvelope: () => ({
+    immutableSectionsHash: "imm-hash",
+    taskContractHash: "contract-hash",
+    contextPackHash: "ctx-hash",
+  }),
+  assertPromptDrift: () => {},
 }));
 
 describe("Orchestrator Policy Enforcement", () => {
@@ -108,14 +133,14 @@ describe("Orchestrator Policy Enforcement", () => {
     mockAdapterExecution = {
       exitCode: 0,
       stdout: "",
-      stderr: ""
+      stderr: "",
     };
     orchestrator = new Orchestrator();
     ctx = {
       run: {
         runId: "run-1",
         repoPath: "/repo",
-        state: "DISPATCHING" // Fix: Must be in a state that allows transition to INTEGRATING
+        state: "DISPATCHING", // Fix: Must be in a state that allows transition to INTEGRATING
       },
       config: {
         baselineGateCommand: "pnpm test",
@@ -129,7 +154,7 @@ describe("Orchestrator Policy Enforcement", () => {
         lockContentionRetryMax: 1,
         lockContentionBackoffMs: 1,
         heartbeatTimeoutSec: 60,
-        maxRepairAttemptsPerClass: 0
+        maxRepairAttemptsPerClass: 0,
       },
       db: {
         recordTaskAttempt: () => {},
@@ -146,22 +171,34 @@ describe("Orchestrator Policy Enforcement", () => {
         listRepairEvents: () => [],
         upsertRun: () => {}, // Added mock for upsertRun called by persistRun
         upsertProviderHealth: () => {},
-        upsertResumeCheckpoint: () => {}
+        upsertResumeCheckpoint: () => {},
+        listAxioms: () => [],
+        listRecentVerifiedTasks: () => [],
       },
       events: {
-        append: () => ({ seq: 1 })
+        append: () => ({ seq: 1 }),
       },
       secureExecutor: {
         prepareEnvironment: (env: NodeJS.ProcessEnv) => env,
         networkAllowed: () => true,
-        modeName: () => "host"
+        modeName: () => "host",
       },
       providerHealth: {
-        onSuccess: (provider: string) => ({ provider, score: 100, lastErrors: [], tokenBucket: 1 }),
-        onFailure: (provider: string) => ({ provider, score: 0, lastErrors: [], tokenBucket: 1 })
+        onSuccess: (provider: string) => ({
+          provider,
+          score: 100,
+          lastErrors: [],
+          tokenBucket: 1,
+        }),
+        onFailure: (provider: string) => ({
+          provider,
+          score: 0,
+          lastErrors: [],
+          tokenBucket: 1,
+        }),
       },
       runDir: "/tmp/run",
-      onProgress: () => {}
+      onProgress: () => {},
     };
   });
 
@@ -184,33 +221,35 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm test"],
         deny: ["rm -rf"],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "rm -rf /",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
 
-    await expect(orchestrator.executeTask(
-      ctx,
-      task,
-      record,
-      new LockManager(1000),
-      new LeaseHeartbeat(new LockManager(1000), 1000),
-      new MergeQueue(),
-      new WorktreeManager(),
-      { increment: () => 1, allowed: () => false },
-      new Map(),
-      new Map(),
-      new Map()
-    )).rejects.toMatchObject({
-      reasonCode: REASON_CODES.ABORTED_POLICY
+    await expect(
+      orchestrator.executeTask(
+        ctx,
+        task,
+        record,
+        new LockManager(1000),
+        new LeaseHeartbeat(new LockManager(1000), 1000),
+        new MergeQueue(),
+        new WorktreeManager(),
+        { increment: () => 1, allowed: () => false },
+        new Map(),
+        new Map(),
+        new Map(),
+      ),
+    ).rejects.toMatchObject({
+      reasonCode: REASON_CODES.ABORTED_POLICY,
     });
   });
 
@@ -224,33 +263,35 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm"],
         deny: ["fail"],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "pnpm run fail",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
 
-    await expect(orchestrator.executeTask(
-      ctx,
-      task,
-      record,
-      new LockManager(1000),
-      new LeaseHeartbeat(new LockManager(1000), 1000),
-      new MergeQueue(),
-      new WorktreeManager(),
-      { increment: () => 1, allowed: () => false },
-      new Map(),
-      new Map(),
-      new Map()
-    )).rejects.toMatchObject({
-      reasonCode: REASON_CODES.ABORTED_POLICY
+    await expect(
+      orchestrator.executeTask(
+        ctx,
+        task,
+        record,
+        new LockManager(1000),
+        new LeaseHeartbeat(new LockManager(1000), 1000),
+        new MergeQueue(),
+        new WorktreeManager(),
+        { increment: () => 1, allowed: () => false },
+        new Map(),
+        new Map(),
+        new Map(),
+      ),
+    ).rejects.toMatchObject({
+      reasonCode: REASON_CODES.ABORTED_POLICY,
     });
   });
 
@@ -264,56 +305,70 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm test"],
         deny: [],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "pnpm test",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
 
     // Gate will fail
-    vi.spyOn(postMergeGate, 'runGate').mockResolvedValueOnce({ ok: false, exitCode: 1, stdout: "", stderr: "failed", command: "pnpm test" });
-    const runCommandSpy = vi.spyOn(shell, 'runCommand');
+    vi.spyOn(postMergeGate, "runGate").mockResolvedValueOnce({
+      ok: false,
+      exitCode: 1,
+      stdout: "",
+      stderr: "failed",
+      command: "pnpm test",
+    });
+    const runCommandSpy = vi.spyOn(shell, "runCommand");
 
-    await expect(orchestrator.executeTask(
-      ctx,
-      task,
-      record,
-      new LockManager(1000),
-      new LeaseHeartbeat(new LockManager(1000), 1000),
-      new MergeQueue(),
-      new WorktreeManager(),
-      { increment: () => 1, allowed: () => false },
-      new Map(),
-      new Map(),
-      new Map()
-    )).rejects.toMatchObject({
-      reasonCode: REASON_CODES.MERGE_GATE_FAILED
+    await expect(
+      orchestrator.executeTask(
+        ctx,
+        task,
+        record,
+        new LockManager(1000),
+        new LeaseHeartbeat(new LockManager(1000), 1000),
+        new MergeQueue(),
+        new WorktreeManager(),
+        { increment: () => 1, allowed: () => false },
+        new Map(),
+        new Map(),
+        new Map(),
+      ),
+    ).rejects.toMatchObject({
+      reasonCode: REASON_CODES.MERGE_GATE_FAILED,
     });
 
     const revertCallIndex = runCommandSpy.mock.calls.findIndex(
-      call => call[1] && call[1].includes("revert")
+      (call) => call[1] && call[1].includes("revert"),
     );
     expect(revertCallIndex).toBeGreaterThan(-1);
     const revertArgs = runCommandSpy.mock.calls[revertCallIndex][1];
-    expect(revertArgs).toEqual(["-C", "/repo", "revert", "--no-commit", "hash123"]);
+    expect(revertArgs).toEqual([
+      "-C",
+      "/repo",
+      "revert",
+      "--no-commit",
+      "hash123",
+    ]);
 
     const subsequentCommitCall = runCommandSpy.mock.calls
       .slice(revertCallIndex + 1)
-      .find(call => call[1] && call[1].includes("commit"));
+      .find((call) => call[1] && call[1].includes("commit"));
     expect(subsequentCommitCall).toBeDefined();
   });
 
   it("requeues stale task through replanning path instead of creating repair task", async () => {
     vi.mocked(staleness.detectStaleness).mockResolvedValueOnce({
       stale: true,
-      reasons: ["base commit drift detected"]
+      reasons: ["base commit drift detected"],
     });
 
     const task = {
@@ -325,15 +380,15 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm test"],
         deny: [],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "pnpm test",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
@@ -350,7 +405,7 @@ describe("Orchestrator Policy Enforcement", () => {
       { increment: () => 1, allowed: () => true },
       new Map(),
       taskById,
-      new Map()
+      new Map(),
     );
 
     expect(record.state).toBe("PENDING");
@@ -362,7 +417,9 @@ describe("Orchestrator Policy Enforcement", () => {
     const checkpointSpy = vi.fn();
     ctx.db.upsertResumeCheckpoint = checkpointSpy;
     vi.spyOn(orchestrator, "integrateCommit").mockRejectedValueOnce(
-      Object.assign(new Error("crash mid merge"), { reasonCode: REASON_CODES.MERGE_CONFLICT })
+      Object.assign(new Error("crash mid merge"), {
+        reasonCode: REASON_CODES.MERGE_CONFLICT,
+      }),
     );
 
     const task = {
@@ -374,15 +431,15 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm test"],
         deny: [],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "pnpm test",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
@@ -398,10 +455,16 @@ describe("Orchestrator Policy Enforcement", () => {
       { increment: () => 1, allowed: () => true },
       new Map(),
       new Map(),
-      new Map()
+      new Map(),
     );
 
-    expect(checkpointSpy).toHaveBeenCalledWith("run-1", "task-merge-crash", "MERGE_QUEUED", 1, "hash123");
+    expect(checkpointSpy).toHaveBeenCalledWith(
+      "run-1",
+      "task-merge-crash",
+      "MERGE_QUEUED",
+      1,
+      "hash123",
+    );
   });
 
   it("captures raw forensic logs only when forensic policy is enabled", async () => {
@@ -415,7 +478,7 @@ describe("Orchestrator Policy Enforcement", () => {
       exitCode: 0,
       stdout: "",
       stderr: "",
-      rawOutput: "provider raw output"
+      rawOutput: "provider raw output",
     };
 
     const task = {
@@ -427,15 +490,15 @@ describe("Orchestrator Policy Enforcement", () => {
       commandPolicy: {
         allow: ["pnpm test"],
         deny: [],
-        network: "deny"
+        network: "deny",
       },
       verify: {
         gateCommand: "pnpm test",
-        outputVerificationRequired: false
+        outputVerificationRequired: false,
       },
       artifactIO: {},
       expected: {},
-      contractHash: "hash"
+      contractHash: "hash",
     };
 
     const record = { attempts: 0, state: "PENDING" };
@@ -451,11 +514,11 @@ describe("Orchestrator Policy Enforcement", () => {
       { increment: () => 1, allowed: () => true },
       new Map(),
       new Map(),
-      new Map()
+      new Map(),
     );
 
     const forensicEvent = appendSpy.mock.calls.find(
-      (call) => call[1] === "TASK_FORENSIC_RAW_CAPTURED"
+      (call) => call[1] === "TASK_FORENSIC_RAW_CAPTURED",
     );
     expect(forensicEvent).toBeDefined();
     const payload = forensicEvent?.[2] as { path: string };

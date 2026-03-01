@@ -1,5 +1,6 @@
 import { PtyManager } from "../../execution/pty-manager.js";
 import { runInContainer } from "../../execution/container-runner.js";
+import { runCommand } from "../../core/shell.js";
 import type { ProviderAdapter, ProviderExecutionRequest, ProviderExecutionResult } from "./types.js";
 
 export class ClaudeAdapter implements ProviderAdapter {
@@ -7,6 +8,22 @@ export class ClaudeAdapter implements ProviderAdapter {
   private readonly pty = new PtyManager();
 
   public async execute(request: ProviderExecutionRequest): Promise<ProviderExecutionResult> {
+    if (request.promptViaStdin && request.executionMode !== "container") {
+      const result = await runCommand("claude", ["--print", "--output-format", "json"], {
+        cwd: request.cwd,
+        env: request.env,
+        timeoutMs: request.timeoutMs,
+        stdin: request.prompt
+      });
+      return {
+        provider: this.provider,
+        exitCode: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        rawOutput: `${result.stdout}${result.stderr}`
+      };
+    }
+
     const args = ["--print", "--output-format", "json", request.prompt];
     if (request.executionMode === "container") {
       const result = await runInContainer({

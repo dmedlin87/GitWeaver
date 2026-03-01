@@ -49,7 +49,7 @@ export class PtyManager {
       };
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const shell = process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "bash";
       const shellArgs = process.platform === "win32"
         ? ["-NoProfile", "-Command", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`]
@@ -68,13 +68,19 @@ export class PtyManager {
         env.COLORTERM = process.env.COLORTERM;
       }
 
-      const proc = ptyModule.spawn(shell, shellArgs, {
-        name: "xterm-color",
-        cols: 120,
-        rows: 40,
-        cwd: options.cwd,
-        env: env as Record<string, string>
-      });
+      let proc: ReturnType<NodePtyModule["spawn"]>;
+      try {
+        proc = ptyModule.spawn(shell, shellArgs, {
+          name: "xterm-color",
+          cols: 120,
+          rows: 40,
+          cwd: options.cwd,
+          env: env as Record<string, string>
+        });
+      } catch (spawnError) {
+        reject(spawnError);
+        return;
+      }
 
       let rawOutput = "";
       let lastOutput = Date.now();
@@ -125,8 +131,11 @@ export class PtyManager {
 }
 
 function normalizeOutput(output: string): string {
-  const ansiStripped = output.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
-  return redactSensitive(ansiStripped);
+  // Strip ANSI CSI sequences (e.g. colour codes)
+  let stripped = output.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+  // Strip OSC sequences: ESC ] ... ST  (ST = BEL \x07 or ESC \)
+  stripped = stripped.replace(/\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)/g, "");
+  return redactSensitive(stripped);
 }
 
 function escapeArg(arg: string): string {
