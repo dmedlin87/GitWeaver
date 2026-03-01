@@ -55,9 +55,9 @@ describe("stableStringify", () => {
     expect(stableStringify(null)).toBe("null");
   });
 
-  it("handles undefined", () => {
-    // JSON.stringify(undefined) returns undefined
-    expect(stableStringify(undefined)).toBeUndefined();
+  it("handles undefined by throwing an error", () => {
+    // stableStringify explicitly forbids undefined to ensure deterministic string outputs
+    expect(() => stableStringify(undefined)).toThrow("Cannot stableStringify undefined");
   });
 
   it("handles complex mixed structure", () => {
