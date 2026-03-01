@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunRecord, TaskRecord } from "../../src/core/types.js";
+import { EventLog } from "../../src/persistence/event-log.js";
 import { reconcileResume } from "../../src/persistence/resume-reconcile.js";
 import { runGit, initGitRepo } from "../helpers/git-fixture.js";
 
@@ -83,6 +84,7 @@ describe("resume reconciliation integration", () => {
   it("emits RESUME_DB_LAG when git is merged but event log and DB lag", async () => {
     const repo = makeTempDir();
     initGitRepo(repo);
+    const eventPath = join(repo, "events.ndjson");
 
     writeFileSync(join(repo, "file.txt"), "hello\n", "utf8");
     runGit(repo, ["add", "."]);
@@ -115,10 +117,16 @@ describe("resume reconciliation integration", () => {
       }
     ];
 
+    const log = new EventLog(eventPath);
+    log.append(run.runId, "TASK_ATTEMPT", { taskId: "task-lag", attempt: 1 });
+    appendFileSync(eventPath, '{"seq":2,"runId":"run-lag","ts":"2023-01-01T00:00:00.000Z","type":"TASK_PROVIDER_HEARTBEAT","payload":{"taskId":"task-lag"', "utf8");
+
+    const events = new EventLog(eventPath).readAll();
+
     const decision = await reconcileResume({
       run,
       tasksFromDb,
-      events: []
+      events
     });
 
     expect(decision.mergedTaskIds).toContain("task-lag");
