@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { REASON_CODES } from "../../src/core/reason-codes.js";
+import { DEFAULT_CONTAINER_IMAGE } from "../../src/core/config.js";
 import * as postMergeGate from "../../src/verification/post-merge-gate.js";
 import * as shell from "../../src/core/shell.js";
 import * as staleness from "../../src/verification/staleness.js";
@@ -147,7 +148,7 @@ describe("Orchestrator Policy Enforcement", () => {
         defaultNetworkPolicy: "deny",
         executionMode: "host",
         containerRuntime: "docker",
-        containerImage: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        containerImage: DEFAULT_CONTAINER_IMAGE,
         forensicRawLogs: false,
         leaseDurationSec: 60,
         leaseRenewSec: 30,

@@ -1,6 +1,7 @@
 import { PtyManager } from "../../execution/pty-manager.js";
 import { runInContainer } from "../../execution/container-runner.js";
 import { runCommand } from "../../core/shell.js";
+import { DEFAULT_CONTAINER_IMAGE } from "../../core/config.js";
 import type { ProviderAdapter, ProviderExecutionRequest, ProviderExecutionResult } from "./types.js";
 
 export class CodexAdapter implements ProviderAdapter {
@@ -34,7 +35,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (request.executionMode === "container") {
       const result = await runInContainer({
         runtime: request.containerRuntime ?? "docker",
-        image: request.containerImage ?? "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
         workspacePath: request.cwd,
         env: request.env,
         command: "codex",

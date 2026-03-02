@@ -1,5 +1,6 @@
 import { runCommand } from "../../core/shell.js";
 import { runInContainer } from "../../execution/container-runner.js";
+import { DEFAULT_CONTAINER_IMAGE } from "../../core/config.js";
 import type { ProviderAdapter, ProviderExecutionRequest, ProviderExecutionResult } from "./types.js";
 
 export class GeminiAdapter implements ProviderAdapter {
@@ -12,7 +13,7 @@ export class GeminiAdapter implements ProviderAdapter {
     const result = request.executionMode === "container"
       ? await runInContainer({
           runtime: request.containerRuntime ?? "docker",
-          image: request.containerImage ?? "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+          image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
           workspacePath: request.cwd,
           env: request.env,
           command: "gemini",
