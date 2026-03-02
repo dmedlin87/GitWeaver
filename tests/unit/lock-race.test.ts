@@ -1,4 +1,3 @@
-
 import { describe, expect, it } from "vitest";
 import { LockManager } from "../../src/scheduler/lock-manager.js";
 import { MergeQueue } from "../../src/scheduler/merge-queue.js";
@@ -49,20 +48,24 @@ describe("Concurrency Audit: Lock Leasing & Merge Queue", () => {
     expect(leasesA).not.toBeNull();
     const tokenA = leasesA![0].fencingToken;
 
-    // 2. Wait for lease to expire
+    // 2. Task C tries to acquire lock while Task A holds it
+    const leasesC = lockManager.tryAcquireWrite([resource], "task-C");
+    expect(leasesC).toBeNull(); // Should be rejected
+
+    // 3. Wait for lease to expire
     await new Promise((resolve) => setTimeout(resolve, 60));
 
-    // 3. Task B acquires lock (should succeed because A expired)
+    // 4. Task B acquires lock (should succeed because A expired)
     const leasesB = lockManager.tryAcquireWrite([resource], "task-B");
     expect(leasesB).not.toBeNull();
     const tokenB = leasesB![0].fencingToken;
     expect(tokenB).toBeGreaterThan(tokenA); // Monotonicity check
 
-    // 4. Task A tries to validte (simulating a write attempt)
+    // 5. Task A tries to validte (simulating a write attempt)
     const isValidA = lockManager.validateFencing(resource, "task-A", tokenA);
     expect(isValidA).toBe(false);
 
-    // 5. Task B should be valid
+    // 6. Task B should be valid
     const isValidB = lockManager.validateFencing(resource, "task-B", tokenB);
     expect(isValidB).toBe(true);
   });

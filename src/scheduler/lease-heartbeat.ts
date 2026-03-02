@@ -9,15 +9,22 @@ export class LeaseHeartbeat {
   public start(ownerTaskId: string, leases: LockLease[]): void {
     for (const lease of leases) {
       const key = `${ownerTaskId}:${lease.resourceKey}`;
-      if (this.timers.has(key)) {
-        continue;
+      const existing = this.timers.get(key);
+      if (existing) {
+        clearInterval(existing);
       }
 
       const timer = setInterval(() => {
         const renewed = this.lockManager.renew(lease.resourceKey, ownerTaskId, lease.fencingToken);
         if (!renewed) {
-          clearInterval(timer);
-          this.timers.delete(key);
+          const currentTimer = this.timers.get(key);
+          if (currentTimer === timer) {
+            clearInterval(timer);
+            this.timers.delete(key);
+          } else {
+            // we should still clear this obsolete timer
+            clearInterval(timer);
+          }
         }
       }, this.renewMs);
       this.timers.set(key, timer);
