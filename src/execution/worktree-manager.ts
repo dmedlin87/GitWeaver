@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { runCommand } from "../core/shell.js";
 
 export interface WorktreeHandle {
@@ -17,7 +18,9 @@ export class WorktreeManager {
     const branch = `orch/${sanitize(runId)}/${sanitize(taskId)}`;
     const root = join(tmpdir(), "orc", sanitize(runId));
     await mkdir(root, { recursive: true });
-    const worktreePath = join(root, sanitize(taskId));
+
+    const nonce = randomBytes(4).toString("hex");
+    const worktreePath = join(root, `${sanitize(taskId)}-${nonce}`);
 
     await rm(worktreePath, { recursive: true, force: true });
 

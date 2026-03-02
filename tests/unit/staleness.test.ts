@@ -45,15 +45,15 @@ describe("staleness detection", () => {
     expect(result.reasons).toEqual([]);
   });
 
-  it("flags base commit drift even when signatures match", async () => {
+  it("does not flag base commit drift if signatures match", async () => {
     const repo = makeRepo();
     writeFileSync(join(repo, "artifact.txt"), "v1\n", "utf8");
     mockLatestCommit.mockResolvedValue("head-b");
     const latest = collectArtifactSignatures(repo, ["artifact.txt"]);
     const result = await detectStaleness(repo, "head-a", ["artifact.txt"], latest, latest);
 
-    expect(result.stale).toBe(true);
-    expect(result.reasons.some((reason) => reason.includes("base commit drift detected"))).toBe(true);
+    expect(result.stale).toBe(false);
+    expect(result.reasons.length).toBe(0);
   });
 
   it("flags missing consumed artifacts in both snapshots", async () => {

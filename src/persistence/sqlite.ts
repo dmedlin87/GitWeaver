@@ -2,8 +2,11 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { promisify } from "node:util";
 import type { ProviderHealthSnapshot, RunRecord, TaskRecord, ProjectAxiom } from "../core/types.js";
 import type { ReasonCode } from "../core/reason-codes.js";
+
+const sleep = promisify(setTimeout);
 
 export interface OrchestratorDbOptions {
   journalMode?: "WAL" | "DELETE";
@@ -32,13 +35,6 @@ const DEFAULT_DB_OPTIONS: Required<Pick<OrchestratorDbOptions, "journalMode" | "
 
 const SQLITE_BUSY_ERRCODE = 5;
 
-const SLEEP_BUFFER = new SharedArrayBuffer(4);
-const SLEEP_VIEW = new Int32Array(SLEEP_BUFFER);
-
-function sleepSync(ms: number): void {
-  Atomics.wait(SLEEP_VIEW, 0, 0, ms);
-}
-
 export class OrchestratorDb {
   private readonly db: DatabaseSync;
   private readonly options: Required<Pick<OrchestratorDbOptions, "journalMode" | "synchronous" | "busyTimeoutMs" | "busyRetryMax">> & Omit<OrchestratorDbOptions, "journalMode" | "synchronous" | "busyTimeoutMs" | "busyRetryMax">;
@@ -54,8 +50,8 @@ export class OrchestratorDb {
     this.applyPragmas();
   }
 
-  public migrate(): void {
-    this.withBusyRetry("migrate", () => {
+  public async migrate(): Promise<void> {
+    await this.withBusyRetry("migrate", () => {
       const bundledPath = fileURLToPath(new URL("./migrations/001_init.sql", import.meta.url));
       const sourceFallback = join(process.cwd(), "src", "persistence", "migrations", "001_init.sql");
       const migrationPath = existsSync(bundledPath) ? bundledPath : sourceFallback;
@@ -74,14 +70,11 @@ export class OrchestratorDb {
     });
   }
 
-  public transaction<T>(fn: () => T): T {
-    return this.withBusyRetry("transaction", () => {
+  public async transaction<T>(fn: () => T | Promise<T>): Promise<T> {
+    return this.withBusyRetry("transaction", async () => {
       this.db.exec("BEGIN");
       try {
-        const result = fn();
-        if (result instanceof Promise) {
-          throw new Error("Async callbacks are not supported in synchronous transactions. Use a synchronous function.");
-        }
+        const result = await fn();
         this.db.exec("COMMIT");
         return result;
       } catch (error) {
@@ -91,8 +84,8 @@ export class OrchestratorDb {
     });
   }
 
-  public upsertRun(run: RunRecord): void {
-    this.withBusyRetry("upsertRun", () => {
+  public async upsertRun(run: RunRecord): Promise<void> {
+    await this.withBusyRetry("upsertRun", () => {
       this.db
         .prepare(
           `INSERT INTO runs(run_id, objective, repo_path, baseline_commit, config_hash, state, created_at, updated_at, reason_code, narrative_summary)
@@ -122,8 +115,8 @@ export class OrchestratorDb {
     });
   }
 
-  public upsertTask(task: TaskRecord): void {
-    this.withBusyRetry("upsertTask", () => {
+  public async upsertTask(task: TaskRecord): Promise<void> {
+    await this.withBusyRetry("upsertTask", () => {
       if (!this.upsertTaskStmt) {
         this.upsertTaskStmt = this.db.prepare(
           `INSERT INTO tasks(run_id, task_id, provider, type, state, attempts, contract_hash, lease_token, commit_hash, reason_code, summary, research)
@@ -158,8 +151,8 @@ export class OrchestratorDb {
     });
   }
 
-  public recordTaskAttempt(runId: string, taskId: string, attempt: number, state: string, reasonCode?: string): void {
-    this.withBusyRetry("recordTaskAttempt", () => {
+  public async recordTaskAttempt(runId: string, taskId: string, attempt: number, state: string, reasonCode?: string): Promise<void> {
+    await this.withBusyRetry("recordTaskAttempt", () => {
       this.db
         .prepare(
           `INSERT OR REPLACE INTO task_attempts(run_id, task_id, attempt, state, reason_code, created_at)
@@ -169,15 +162,15 @@ export class OrchestratorDb {
     });
   }
 
-  public recordPromptEnvelope(
+  public async recordPromptEnvelope(
     runId: string,
     taskId: string,
     attempt: number,
     immutableSectionsHash: string,
     taskContractHash: string,
     contextPackHash: string
-  ): void {
-    this.withBusyRetry("recordPromptEnvelope", () => {
+  ): Promise<void> {
+    await this.withBusyRetry("recordPromptEnvelope", () => {
       this.db
         .prepare(
           `INSERT OR REPLACE INTO prompt_envelopes(
@@ -194,15 +187,16 @@ export class OrchestratorDb {
     });
   }
 
-  public getLatestPromptEnvelope(runId: string, taskId: string):
+  public async getLatestPromptEnvelope(runId: string, taskId: string): Promise<
     | {
         attempt: number;
         immutableSectionsHash: string;
         taskContractHash: string;
         contextPackHash: string;
       }
-    | undefined {
-    const row = this.withBusyRetry("getLatestPromptEnvelope", () => {
+    | undefined
+  > {
+    const row = await this.withBusyRetry("getLatestPromptEnvelope", () => {
       return this.db
         .prepare(
           `SELECT attempt, immutable_sections_hash, task_contract_hash, context_pack_hash
@@ -233,8 +227,8 @@ export class OrchestratorDb {
     };
   }
 
-  public upsertLease(runId: string, resourceKey: string, ownerTaskId: string, expiresAt: string, fencingToken: number): void {
-    this.withBusyRetry("upsertLease", () => {
+  public async upsertLease(runId: string, resourceKey: string, ownerTaskId: string, expiresAt: string, fencingToken: number): Promise<void> {
+    await this.withBusyRetry("upsertLease", () => {
       this.db
         .prepare(
           `INSERT INTO leases(run_id, resource_key, owner_task_id, expires_at, fencing_token)
@@ -248,8 +242,8 @@ export class OrchestratorDb {
     });
   }
 
-  public upsertArtifactSignature(runId: string, artifactKey: string, signature: string, filePath?: string): void {
-    this.withBusyRetry("upsertArtifactSignature", () => {
+  public async upsertArtifactSignature(runId: string, artifactKey: string, signature: string, filePath?: string): Promise<void> {
+    await this.withBusyRetry("upsertArtifactSignature", () => {
       this.db
         .prepare(
           `INSERT INTO artifacts(run_id, artifact_key, signature, file_path, updated_at)
@@ -263,14 +257,14 @@ export class OrchestratorDb {
     });
   }
 
-  public listArtifactSignatures(runId: string, artifactKeys: string[]): Record<string, string> {
+  public async listArtifactSignatures(runId: string, artifactKeys: string[]): Promise<Record<string, string>> {
     if (artifactKeys.length === 0) {
       return {};
     }
 
     const uniqueKeys = [...new Set(artifactKeys)];
     const placeholders = uniqueKeys.map(() => "?").join(", ");
-    const rows = this.withBusyRetry("listArtifactSignatures", () => {
+    const rows = await this.withBusyRetry("listArtifactSignatures", () => {
       return this.db
         .prepare(`SELECT artifact_key, signature FROM artifacts WHERE run_id=? AND artifact_key IN (${placeholders})`)
         .all(runId, ...uniqueKeys) as Array<{ artifact_key: string; signature: string }>;
@@ -282,20 +276,20 @@ export class OrchestratorDb {
     }, {});
   }
 
-  public removeLeasesByTask(runId: string, taskId: string): void {
-    this.withBusyRetry("removeLeasesByTask", () => {
+  public async removeLeasesByTask(runId: string, taskId: string): Promise<void> {
+    await this.withBusyRetry("removeLeasesByTask", () => {
       this.db.prepare(`DELETE FROM leases WHERE run_id=? AND owner_task_id=?`).run(runId, taskId);
     });
   }
 
-  public listLeases(runId: string): Array<{
+  public async listLeases(runId: string): Promise<Array<{
     runId: string;
     resourceKey: string;
     ownerTaskId: string;
     expiresAt: string;
     fencingToken: number;
-  }> {
-    const rows = this.withBusyRetry("listLeases", () => {
+  }>> {
+    const rows = await this.withBusyRetry("listLeases", () => {
       return this.db
         .prepare(`SELECT run_id, resource_key, owner_task_id, expires_at, fencing_token FROM leases WHERE run_id=? ORDER BY resource_key`)
         .all(runId) as Array<{
@@ -316,8 +310,8 @@ export class OrchestratorDb {
     }));
   }
 
-  public recordGateResult(runId: string, taskId: string, command: string, exitCode: number, stdout: string, stderr: string): void {
-    this.withBusyRetry("recordGateResult", () => {
+  public async recordGateResult(runId: string, taskId: string, command: string, exitCode: number, stdout: string, stderr: string): Promise<void> {
+    await this.withBusyRetry("recordGateResult", () => {
       this.db
         .prepare(
           `INSERT INTO gate_results(run_id, task_id, command, exit_code, stdout, stderr, created_at)
@@ -327,8 +321,8 @@ export class OrchestratorDb {
     });
   }
 
-  public recordRepairEvent(runId: string, taskId: string, failureClass: string, attempt: number, details: string): void {
-    this.withBusyRetry("recordRepairEvent", () => {
+  public async recordRepairEvent(runId: string, taskId: string, failureClass: string, attempt: number, details: string): Promise<void> {
+    await this.withBusyRetry("recordRepairEvent", () => {
       this.db
         .prepare(
           `INSERT OR REPLACE INTO repair_events(run_id, task_id, failure_class, attempt, details, created_at)
@@ -338,7 +332,7 @@ export class OrchestratorDb {
     });
   }
 
-  public listRepairEvents(runId: string, taskId: string): Array<{ failureClass: string; attempt: number; details: string; createdAt: string }> {
+  public async listRepairEvents(runId: string, taskId: string): Promise<Array<{ failureClass: string; attempt: number; details: string; createdAt: string }>> {
     return this.withBusyRetry("listRepairEvents", () => {
       const rows = this.db
         .prepare(
@@ -358,8 +352,8 @@ export class OrchestratorDb {
     });
   }
 
-  public upsertProviderHealth(runId: string, snapshot: ProviderHealthSnapshot): void {
-    this.withBusyRetry("upsertProviderHealth", () => {
+  public async upsertProviderHealth(runId: string, snapshot: ProviderHealthSnapshot): Promise<void> {
+    await this.withBusyRetry("upsertProviderHealth", () => {
       this.db
         .prepare(
           `INSERT INTO provider_health(
@@ -396,8 +390,8 @@ export class OrchestratorDb {
     });
   }
 
-  public listProviderHealth(runId: string): ProviderHealthSnapshot[] {
-    const rows = this.withBusyRetry("listProviderHealth", () => {
+  public async listProviderHealth(runId: string): Promise<ProviderHealthSnapshot[]> {
+    const rows = await this.withBusyRetry("listProviderHealth", () => {
       return this.db
         .prepare(
           `SELECT provider, score, last_errors, token_bucket, cooldown_until, consecutive_failures, backoff_sec
@@ -427,8 +421,8 @@ export class OrchestratorDb {
     }));
   }
 
-  public upsertResumeCheckpoint(runId: string, taskId: string | undefined, state: string | undefined, eventSeq: number, commitHash: string): void {
-    this.withBusyRetry("upsertResumeCheckpoint", () => {
+  public async upsertResumeCheckpoint(runId: string, taskId: string | undefined, state: string | undefined, eventSeq: number, commitHash: string): Promise<void> {
+    await this.withBusyRetry("upsertResumeCheckpoint", () => {
       this.db
         .prepare(
           `INSERT INTO resume_checkpoints(run_id, task_id, state, event_seq, commit_hash, updated_at)
@@ -444,8 +438,8 @@ export class OrchestratorDb {
     });
   }
 
-  public getResumeCheckpoint(runId: string): ResumeCheckpoint | undefined {
-    const row = this.withBusyRetry("getResumeCheckpoint", () => {
+  public async getResumeCheckpoint(runId: string): Promise<ResumeCheckpoint | undefined> {
+    const row = await this.withBusyRetry("getResumeCheckpoint", () => {
       return this.db
         .prepare(`SELECT run_id, task_id, state, event_seq, commit_hash, updated_at FROM resume_checkpoints WHERE run_id=?`)
         .get(runId) as
@@ -474,8 +468,8 @@ export class OrchestratorDb {
     };
   }
 
-  public getRun(runId: string): RunRecord | undefined {
-    const row = this.withBusyRetry("getRun", () => {
+  public async getRun(runId: string): Promise<RunRecord | undefined> {
+    const row = await this.withBusyRetry("getRun", () => {
       return this.db.prepare(`SELECT * FROM runs WHERE run_id=?`).get(runId) as
         | {
             run_id: string;
@@ -510,8 +504,8 @@ export class OrchestratorDb {
     };
   }
 
-  public listTasks(runId: string): TaskRecord[] {
-    const rows = this.withBusyRetry("listTasks", () => {
+  public async listTasks(runId: string): Promise<TaskRecord[]> {
+    const rows = await this.withBusyRetry("listTasks", () => {
       return this.db.prepare(`SELECT * FROM tasks WHERE run_id=? ORDER BY task_id`).all(runId) as Array<{
         run_id: string;
         task_id: string;
@@ -544,8 +538,8 @@ export class OrchestratorDb {
     }));
   }
 
-  public upsertAxiom(axiom: ProjectAxiom): void {
-    this.withBusyRetry("upsertAxiom", () => {
+  public async upsertAxiom(axiom: ProjectAxiom): Promise<void> {
+    await this.withBusyRetry("upsertAxiom", () => {
       this.db
         .prepare(
           `INSERT INTO project_axioms(run_id, axiom_id, content, source_task_id, created_at)
@@ -559,8 +553,8 @@ export class OrchestratorDb {
     });
   }
 
-  public listAxioms(runId: string): ProjectAxiom[] {
-    const rows = this.withBusyRetry("listAxioms", () => {
+  public async listAxioms(runId: string): Promise<ProjectAxiom[]> {
+    const rows = await this.withBusyRetry("listAxioms", () => {
       return this.db
         .prepare(`SELECT * FROM project_axioms WHERE run_id=? ORDER BY created_at ASC`)
         .all(runId) as Array<{
@@ -581,13 +575,13 @@ export class OrchestratorDb {
     }));
   }
 
-  public listRecentVerifiedTasks(runId: string, limit: number): TaskRecord[] {
-    const rows = this.withBusyRetry("listRecentVerifiedTasks", () => {
+  public async listRecentVerifiedTasks(runId: string, limit: number): Promise<TaskRecord[]> {
+    const rows = await this.withBusyRetry("listRecentVerifiedTasks", () => {
       return this.db
         .prepare(
           `SELECT * FROM tasks
            WHERE run_id=? AND state='VERIFIED'
-           ORDER BY task_id DESC -- task_id is usually orch/run/task-N, so DESC gives recent
+           ORDER BY task_id DESC
            LIMIT ?`
         )
         .all(runId, limit) as Array<{
@@ -627,11 +621,10 @@ export class OrchestratorDb {
   }
 
   private applyPragmas(): void {
-    this.withBusyRetry("applyPragmas", () => {
-      this.db.exec(`PRAGMA journal_mode = ${this.options.journalMode}`);
-      this.db.exec(`PRAGMA synchronous = ${this.options.synchronous}`);
-      this.db.exec(`PRAGMA busy_timeout = ${this.options.busyTimeoutMs}`);
-    });
+    // Pragmas are still applied sync in constructor
+    this.db.exec(`PRAGMA journal_mode = ${this.options.journalMode}`);
+    this.db.exec(`PRAGMA synchronous = ${this.options.synchronous}`);
+    this.db.exec(`PRAGMA busy_timeout = ${this.options.busyTimeoutMs}`);
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -644,11 +637,11 @@ export class OrchestratorDb {
     }
   }
 
-  private withBusyRetry<T>(operation: string, fn: () => T): T {
+  private async withBusyRetry<T>(operation: string, fn: () => T | Promise<T>): Promise<T> {
     let attempt = 0;
     while (true) {
       try {
-        return fn();
+        return await fn();
       } catch (error) {
         const normalized = normalizeError(error);
         const busy = isSqliteBusyError(normalized);
@@ -661,7 +654,7 @@ export class OrchestratorDb {
 
         attempt += 1;
         this.options.onBusyRetry?.(operation, attempt, normalized);
-        sleepSync(Math.min(250, 25 * attempt));
+        await sleep(Math.min(250, 25 * attempt));
       }
     }
   }

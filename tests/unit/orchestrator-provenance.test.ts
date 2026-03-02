@@ -243,7 +243,7 @@ describe("orchestrator provenance helpers", () => {
     orchestrator.metrics.startTimer("gate.duration.task-1.1", { taskId: "task-1", provider: "claude" });
     orchestrator.metrics.endTimer("gate.duration.task-1.1");
 
-    const outcome = orchestrator.completeRun(ctx, "COMPLETED", undefined, {});
+    const outcome = await orchestrator.completeRun(ctx, "COMPLETED", undefined, {});
     expect(outcome.summary.stageLatencyMs).toBeDefined();
 
     const summary = readJson(join(runDir, "summary.json"));

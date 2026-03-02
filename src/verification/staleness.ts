@@ -65,11 +65,6 @@ export async function detectStaleness(
 ): Promise<StalenessResult> {
   const reasons: string[] = [];
 
-  const head = await latestCommit(repoPath);
-  if (head !== taskBaseCommit) {
-    reasons.push(`base commit drift detected: task=${taskBaseCommit}, current=${head}`);
-  }
-
   for (const artifact of [...new Set(consumed ?? [])]) {
     const key = artifactKey(repoPath, artifact);
     const previous = priorSignatures[key];

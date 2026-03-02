@@ -8,7 +8,7 @@ export class LeaseHeartbeat {
 
   public start(ownerTaskId: string, leases: LockLease[]): void {
     for (const lease of leases) {
-      const key = `${ownerTaskId}:${lease.resourceKey}`;
+      const key = `${ownerTaskId};;;${lease.resourceKey}`;
       if (this.timers.has(key)) {
         continue;
       }
@@ -25,8 +25,9 @@ export class LeaseHeartbeat {
   }
 
   public stopOwner(ownerTaskId: string): void {
+    const prefix = `${ownerTaskId};;;`;
     for (const [key, timer] of this.timers.entries()) {
-      if (key.startsWith(`${ownerTaskId}:`)) {
+      if (key.startsWith(prefix)) {
         clearInterval(timer);
         this.timers.delete(key);
       }

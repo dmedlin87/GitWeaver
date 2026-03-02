@@ -35,21 +35,19 @@ describe('WorktreeManager', () => {
     const result = await manager.create(repoPath, runId, taskId, baseCommit);
 
     const expectedRoot = join(tmpdir(), 'orc', 'run-123');
-    const expectedPath = join(expectedRoot, 'task-456');
+    const expectedPathPattern = new RegExp(join(expectedRoot, 'task-456').replace(/\\/g, '\\\\') + '-[a-f0-9]{8}');
 
     expect(fs.mkdir).toHaveBeenCalledWith(expectedRoot, { recursive: true });
-    expect(fs.rm).toHaveBeenCalledWith(expectedPath, { recursive: true, force: true });
+    expect(fs.rm).toHaveBeenCalledWith(expect.stringMatching(expectedPathPattern), { recursive: true, force: true });
 
     expect(shell.runCommand).toHaveBeenCalledWith(
         'git',
-        ['-C', repoPath, 'worktree', 'add', '-B', 'orch/run-123/task-456', expectedPath, baseCommit],
+        ['-C', repoPath, 'worktree', 'add', '-B', 'orch/run-123/task-456', expect.stringMatching(expectedPathPattern), baseCommit],
         expect.any(Object)
     );
 
-    expect(result).toEqual({
-        path: expectedPath,
-        branch: 'orch/run-123/task-456'
-    });
+    expect(result.path).toMatch(expectedPathPattern);
+    expect(result.branch).toBe('orch/run-123/task-456');
   });
 
   it('sanitizes runId and taskId in worktree branch and path', async () => {
@@ -64,21 +62,19 @@ describe('WorktreeManager', () => {
     const sanitizedRunId = 'run-123--invalid';
     const sanitizedTaskId = 'task-456--';
     const expectedRoot = join(tmpdir(), 'orc', sanitizedRunId);
-    const expectedPath = join(expectedRoot, sanitizedTaskId);
+    const expectedPathPattern = new RegExp(join(expectedRoot, sanitizedTaskId).replace(/\\/g, '\\\\') + '-[a-f0-9]{8}');
 
     expect(fs.mkdir).toHaveBeenCalledWith(expectedRoot, { recursive: true });
-    expect(fs.rm).toHaveBeenCalledWith(expectedPath, { recursive: true, force: true });
+    expect(fs.rm).toHaveBeenCalledWith(expect.stringMatching(expectedPathPattern), { recursive: true, force: true });
 
     expect(shell.runCommand).toHaveBeenCalledWith(
         'git',
-        ['-C', repoPath, 'worktree', 'add', '-B', `orch/${sanitizedRunId}/${sanitizedTaskId}`, expectedPath, baseCommit],
+        ['-C', repoPath, 'worktree', 'add', '-B', `orch/${sanitizedRunId}/${sanitizedTaskId}`, expect.stringMatching(expectedPathPattern), baseCommit],
         expect.any(Object)
     );
 
-    expect(result).toEqual({
-        path: expectedPath,
-        branch: `orch/${sanitizedRunId}/${sanitizedTaskId}`
-    });
+    expect(result.path).toMatch(expectedPathPattern);
+    expect(result.branch).toBe(`orch/${sanitizedRunId}/${sanitizedTaskId}`);
   });
 
   it('prunes worktrees', async () => {
