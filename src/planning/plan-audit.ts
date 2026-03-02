@@ -26,12 +26,19 @@ const HOT_RESOURCE_NAMES = new Set([
 
 const SHARED_APPEND_EXT = new Set([".json", ".yaml", ".yml"]);
 
+// Matches "schema", "registry", or "exports" as a complete word-like segment
+// (bounded by start/end or a separator char). This avoids false positives like
+// "test-schema-helpers.ts" or "re-exports-barrel.ts" being treated as hot resources.
+const HOT_SEGMENT_PATTERN = /(?:^|[-_.])(schema|registry|exports)(?:[-_.]|$)/i;
+// Files whose names indicate they are test/spec files are excluded from hot classification.
+const TEST_FILE_PATTERN = /\.test\.[^.]+$|\.spec\.[^.]+$|^test[-_.]/i;
+
 function isHotResource(path: string): boolean {
   const file = basename(path);
   if (HOT_RESOURCE_NAMES.has(file)) {
     return true;
   }
-  if (file.includes("schema") || file.includes("registry") || file.includes("exports")) {
+  if (!TEST_FILE_PATTERN.test(file) && HOT_SEGMENT_PATTERN.test(file)) {
     return true;
   }
   return false;

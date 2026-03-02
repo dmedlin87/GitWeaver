@@ -129,16 +129,35 @@ const PLANNER_SCHEMA = {
   required: ["nodes", "edges"]
 };
 
-function plannerPrompt(objective: string, repoContext: string, pendingTasks?: TaskContract[]): string {
+// Write the Codex output-schema file once at module load. PLANNER_SCHEMA is static
+// data so a single stable file reused across all planning calls avoids temp-file
+// accumulation (previously Date.now() produced a new file per plan invocation).
+const _CODEX_SCHEMA_PATH = join(tmpdir(), "orch-planner-schema.json");
+writeFileSync(_CODEX_SCHEMA_PATH, JSON.stringify(PLANNER_SCHEMA), "utf8");
+
+function plannerPrompt(
+  objective: string,
+  repoContext: string,
+  pendingTasks?: TaskContract[],
+  includeSchema = false
+): string {
   const lines = [
     "Generate a strict JSON DAG for a heterogeneous coding orchestrator.",
     "Rules:",
-    "- Return JSON only.",
+    "- Return JSON only. No markdown, no explanation, no code fences.",
     "- Use TaskContract fields exactly.",
     "- Include write scopes and command policy for each task.",
     "- Keep dependencies explicit and acyclic.",
     `Objective: ${objective}`
   ];
+  if (includeSchema) {
+    lines.push(
+      "\nOutput must conform exactly to this JSON Schema (do not add extra fields):",
+      "```json",
+      JSON.stringify(PLANNER_SCHEMA, null, 2),
+      "```"
+    );
+  }
   if (repoContext) {
     lines.push("\nRepository Context:");
     lines.push(repoContext);
@@ -274,9 +293,6 @@ export async function generateDagWithCodex(
   pendingTasks?: TaskContract[],
   options: PlannerOptions = {}
 ): Promise<PlannerResult> {
-  const schemaPath = join(tmpdir(), `orch-planner-schema-${Date.now()}.json`);
-  writeFileSync(schemaPath, JSON.stringify(PLANNER_SCHEMA), "utf8");
-
   let repoContext = "";
   try {
     const pkgJson = readFileSync(join(cwd, "package.json"), "utf8");
@@ -296,12 +312,12 @@ export async function generateDagWithCodex(
     let result: Awaited<ReturnType<typeof adapter.execute>>;
     try {
       result = await adapter.execute({
-        prompt: plannerPrompt(objective, repoContext, pendingTasks),
+        prompt: plannerPrompt(objective, repoContext, pendingTasks, provider !== "codex"),
         cwd,
         timeoutMs: 180_000,
         executionMode: "host",
         promptViaStdin: true,
-        ...(provider === "codex" ? { outputSchemaPath: schemaPath } : {})
+        ...(provider === "codex" ? { outputSchemaPath: _CODEX_SCHEMA_PATH } : {})
       });
     } catch (execError) {
       const msg = (execError as Error).message ?? String(execError);

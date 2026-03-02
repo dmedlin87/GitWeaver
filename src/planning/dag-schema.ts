@@ -113,9 +113,21 @@ export function validateDag(input: unknown): DagSpec {
   if ("tasks" in rawParsed) {
     // Normalize loose tasks format to strict nodes/edges
     const nodes: TaskContract[] = rawParsed.tasks.map(t => {
-      const taskId = t.taskId || t.id || `task-${Math.random().toString(36).slice(2, 7)}`;
-      const title = t.title || t.description || t.goal || taskId;
-      const allow = t.writeScope?.allow || t.write_scopes || ["./"];
+      const title = t.title || t.description || t.goal || t.taskId || t.id || "";
+      // Deterministic ID: prefer explicit id fields, else derive from content hash so
+      // re-parsing the same AI response always produces the same taskId (critical for
+      // resume and replan correctness — Math.random() here would break plan hashes).
+      const taskId = t.taskId || t.id ||
+        `task-${sha256(`${title}:${(t.dependencies ?? []).slice().sort().join(",")}`).slice(0, 12)}`;
+
+      const allow = t.writeScope?.allow ?? t.write_scopes;
+      if (!allow || allow.length === 0) {
+        throw new Error(
+          `Loose task "${taskId}" has no writeScope.allow or write_scopes. ` +
+          `Refusing to default to full-repo access (["./"]). ` +
+          `The planner must emit explicit write scopes for every task.`
+        );
+      }
       
       const withoutHash = {
         taskId,
