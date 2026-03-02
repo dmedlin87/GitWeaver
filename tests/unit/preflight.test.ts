@@ -193,6 +193,33 @@ describe("buildInstallPlan", () => {
     expect(issueWithDetail).toContain("Exit code 1: Some specific API error");
   });
 
+  it("does not duplicate 'Command execution failed:' when auth command fails", async () => {
+    runCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "gemini" && args.length === 1 && args[0] === "--version") {
+        return { code: 0, stdout: "0.30.0\n", stderr: "" };
+      }
+      if (command === "npm" && args[0] === "view") {
+        return { code: 0, stdout: "0.30.0\n", stderr: "" };
+      }
+      if (command === "gemini" && args[0] === "--prompt") {
+        throw new Error("spawn ENOENT");
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const summary = await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Command execution failed:"));
+    expect(issueWithDetail).toBeDefined();
+    expect(issueWithDetail).toBe("Command execution failed: spawn ENOENT");
+    expect(issueWithDetail).not.toContain("Command execution failed: Command execution failed:");
+  });
+
   it("treats cached credentials output as authenticated for gemini", async () => {
     mockGeminiChecks({
       authCode: 1,
