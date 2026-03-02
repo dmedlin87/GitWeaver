@@ -17,6 +17,6 @@ export function registerStatusCommand(program: Command): void {
         printJson(status);
         return;
       }
-      console.log(JSON.stringify(status, null, 2));
+      process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
     });
 }

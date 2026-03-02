@@ -37,9 +37,9 @@ export function registerProvidersCommand(program: Command): void {
         return;
       }
       for (const status of statuses) {
-        console.log(`${status.provider}: installed=${status.installed} auth=${status.authStatus} installedVersion=${status.versionInstalled ?? "n/a"} latest=${status.versionLatest ?? "n/a"}`);
+        process.stdout.write(`${status.provider}: installed=${status.installed} auth=${status.authStatus} installedVersion=${status.versionInstalled ?? "n/a"} latest=${status.versionLatest ?? "n/a"}` + "\n");
         for (const issue of status.issues) {
-          console.log(`  - ${issue}`);
+          process.stdout.write(`  - ${issue}` + "\n");
         }
       }
     });
@@ -73,7 +73,7 @@ export function registerProvidersCommand(program: Command): void {
         printJson(payload);
         return;
       }
-      console.log(JSON.stringify(payload, null, 2));
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
       if (!outcome.shouldContinue) {
         process.exitCode = 1;
       }
@@ -114,7 +114,7 @@ export function registerProvidersCommand(program: Command): void {
         return;
       }
 
-      console.log(JSON.stringify(payload, null, 2));
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
       if (missing.length > 0 && !opts.fix) {
         process.exitCode = 1;
       }

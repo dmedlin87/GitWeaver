@@ -19,6 +19,6 @@ export function registerInspectCommand(program: Command): void {
         printJson(inspect);
         return;
       }
-      console.log(JSON.stringify(inspect, null, 2));
+      process.stdout.write(`${JSON.stringify(inspect, null, 2)}\n`);
     });
 }

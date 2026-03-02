@@ -95,12 +95,12 @@ export function registerRunCommand(program: Command): void {
         return;
       }
 
-      console.log(`runId: ${result.runId}`);
-      console.log(`state: ${result.state}`);
+      process.stdout.write(`runId: ${result.runId}\n`);
+      process.stdout.write(`state: ${result.state}\n`);
       if (result.reasonCode) {
-        console.log(`reasonCode: ${result.reasonCode}`);
+        process.stdout.write(`reasonCode: ${result.reasonCode}\n`);
       }
-      console.log(JSON.stringify(result.summary, null, 2));
+      process.stdout.write(`${JSON.stringify(result.summary, null, 2)}\n`);
       if (result.state !== "COMPLETED") {
         process.exitCode = 1;
       }

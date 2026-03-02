@@ -17,6 +17,6 @@ export function registerLocksCommand(program: Command): void {
         printJson(payload);
         return;
       }
-      console.log(JSON.stringify(payload, null, 2));
+      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
     });
 }

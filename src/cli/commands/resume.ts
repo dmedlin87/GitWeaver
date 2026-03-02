@@ -19,6 +19,6 @@ export function registerResumeCommand(program: Command): void {
         printJson(result);
         return;
       }
-      console.log(JSON.stringify(result, null, 2));
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     });
 }

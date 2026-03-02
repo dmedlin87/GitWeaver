@@ -1,0 +1,3 @@
+## 2026-03-02 - CLI JSON stdout purity
+**Learning:** For CLI tools that accept a `--json` parameter to output machine-readable payloads, we must ensure that any informational, warning, or progress log statements are strictly routed to `stderr` or completely silenced. Using standard `console.log()` outputs text to `stdout`, and `process.stdout.write()` prints to `stdout` directly, which immediately breaks downstream scripts depending on a pure JSON response.
+**Action:** When implementing new CLI commands or adding progress updates, explicitly verify that all informational logs use `process.stderr.write()` or a logger configured to write to stderr, reserving `process.stdout.write()` strictly for the final JSON payload when `--json` is set.

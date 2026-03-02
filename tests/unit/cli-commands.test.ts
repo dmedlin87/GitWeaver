@@ -40,6 +40,7 @@ import { registerInspectCommand } from "../../src/cli/commands/inspect.js";
 import { registerLocksCommand } from "../../src/cli/commands/locks.js";
 
 const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
 afterAll(() => {
@@ -281,7 +282,7 @@ describe("resume command", () => {
     registerResumeCommand(program);
     await parseAsync(program, ["resume", "r1"]);
 
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalled();
   });
 });
 
@@ -320,7 +321,7 @@ describe("status command", () => {
     registerStatusCommand(program);
     await parseAsync(program, ["status", "run-abc"]);
 
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalled();
   });
 });
 
@@ -398,6 +399,6 @@ describe("locks command", () => {
     registerLocksCommand(program);
     await parseAsync(program, ["locks", "run-abc"]);
 
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(stdoutSpy).toHaveBeenCalled();
   });
 });
