@@ -163,15 +163,16 @@ export class Orchestrator {
           this.logger.error("SQLite busy exhausted", { runId, operation, attempts, message: error.message });
         }
       });
-      db.migrate();
+      await db.migrate();
 
       const events = new EventLog(join(runDir, "events.ndjson"));
+      const initialHealth = await db.listProviderHealth(runId);
       const providerHealth = new ProviderHealthManager({
         buckets: config.providerBuckets,
         baseBackoffSec: config.providerBackoffBaseSec,
         maxBackoffSec: config.providerBackoffMaxSec,
         recoverPerSuccess: config.providerHealthRecoverPerSuccess,
-        initial: this.indexProviderHealth(db.listProviderHealth(runId))
+        initial: this.indexProviderHealth(initialHealth)
       });
       ctx = {
         run,
@@ -187,8 +188,8 @@ export class Orchestrator {
       };
       const runtimeCtx = ctx;
 
-      this.persistRun(runtimeCtx);
-      this.recordBaselineOk(runtimeCtx, baselineGate);
+      await this.persistRun(runtimeCtx);
+      await this.recordBaselineOk(runtimeCtx, baselineGate);
 
       await this.preflightStageA(runtimeCtx, options);
       const frozenDag = await this.plan(runtimeCtx, options);
@@ -201,7 +202,7 @@ export class Orchestrator {
       if (options.dryRun) {
         this.progress(runtimeCtx, "dry_run", "Dry run completed after planning");
         const detailed = options.dryRunReport !== "basic";
-        return this.completeRun(runtimeCtx, "COMPLETED", undefined, {
+        return await this.completeRun(runtimeCtx, "COMPLETED", undefined, {
           dryRun: true,
           dag: frozenDag,
           routeDecisions: detailed ? runtimeCtx.routeDecisions : undefined,
@@ -223,9 +224,9 @@ export class Orchestrator {
       // 💡 What: Grouping multiple task inserts into a single SQLite transaction.
       // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
       // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making DAG initialization significantly faster.
-      runtimeCtx.db.transaction(() => {
+      await runtimeCtx.db.transaction(async () => {
         for (const task of taskRecords) {
-          runtimeCtx.db.upsertTask(task);
+          await runtimeCtx.db.upsertTask(task);
         }
       });
 
@@ -235,7 +236,7 @@ export class Orchestrator {
       const reasonCode = this.extractReasonCode(error);
       this.logger.error("Run failed", { runId, reasonCode, message: (error as Error).message });
       if (ctx) {
-        return this.completeRun(ctx, "ABORTED_POLICY", reasonCode, {
+        return await this.completeRun(ctx, "ABORTED_POLICY", reasonCode, {
           error: (error as Error).message,
           metrics: this.metrics.snapshot()
         });
@@ -257,9 +258,9 @@ export class Orchestrator {
   public async resume(runId: string, acceptDrift: boolean): Promise<RunOutcome> {
     const repoPath = await this.resolveRepo(undefined);
     const db = this.openDb(repoPath);
-    db.migrate();
+    await db.migrate();
     try {
-      const run = db.getRun(runId);
+      const run = await db.getRun(runId);
       if (!run) {
         throw new Error(`Run ${runId} not found`);
       }
@@ -267,10 +268,10 @@ export class Orchestrator {
       const events = new EventLog(join(repoPath, ".orchestrator", "runs", runId, "events.ndjson"));
       const decision = await reconcileResume({
         run,
-        tasksFromDb: db.listTasks(runId),
+        tasksFromDb: await db.listTasks(runId),
         events: events.readAll()
       });
-      const checkpoint = db.getResumeCheckpoint(runId);
+      const checkpoint = await db.getResumeCheckpoint(runId);
       if (
         checkpoint?.taskId &&
         checkpoint.state === "MERGE_QUEUED" &&
@@ -314,10 +315,10 @@ export class Orchestrator {
   public async status(runId: string): Promise<Record<string, unknown>> {
     const repoPath = await this.resolveRepo(undefined);
     const db = this.openDb(repoPath);
-    db.migrate();
+    await db.migrate();
 
-    const run = db.getRun(runId);
-    const tasks = db.listTasks(runId);
+    const run = await db.getRun(runId);
+    const tasks = await db.listTasks(runId);
     db.close();
 
     return {
@@ -339,8 +340,8 @@ export class Orchestrator {
   public async locks(runId: string): Promise<Record<string, unknown>> {
     const repoPath = await this.resolveRepo(undefined);
     const db = this.openDb(repoPath);
-    db.migrate();
-    const leases = db.listLeases(runId);
+    await db.migrate();
+    const leases = await db.listLeases(runId);
     db.close();
     return {
       runId,
@@ -354,7 +355,7 @@ export class Orchestrator {
     taskRecords: TaskRecord[],
     options: RunCliOptions
   ): Promise<RunOutcome> {
-    this.transitionRun(ctx, "DISPATCHING");
+    await this.transitionRun(ctx, "DISPATCHING");
 
     const scheduler = new Scheduler({
       ...ctx.config.providerBuckets,
@@ -392,9 +393,9 @@ export class Orchestrator {
       }
 
       if (readyTasks.length > 0) {
-        ctx.db.transaction(() => {
+        await ctx.db.transaction(async () => {
           for (const task of readyTasks) {
-            ctx.db.upsertTask(task);
+            await ctx.db.upsertTask(task);
           }
         });
       }
@@ -454,7 +455,7 @@ export class Orchestrator {
               const evidence = (error as any).evidence;
               ctx.run.state = "REPLANNING";
               ctx.run.replanEvidence = evidence;
-              this.persistRun(ctx);
+              await this.persistRun(ctx);
 
               ctx.events.append(ctx.run.runId, "REPLAN_REQUESTED", {
                 taskId: task.taskId,
@@ -473,7 +474,7 @@ export class Orchestrator {
 
             record.state = "ESCALATED";
             record.reasonCode = reasonCode;
-            ctx.db.upsertTask(record);
+            await ctx.db.upsertTask(record);
             ctx.events.append(ctx.run.runId, "TASK_ESCALATED", {
               taskId: task.taskId,
               reasonCode,
@@ -540,7 +541,7 @@ export class Orchestrator {
             if (record) {
               record.state = "ESCALATED";
               record.reasonCode = REASON_CODES.STALE_REPLAN_TRIGGERED;
-              ctx.db.upsertTask(record);
+              await ctx.db.upsertTask(record);
               ctx.events.append(ctx.run.runId, "TASK_CANCELLED", {
                 taskId: pendingId,
                 reasonCode: record.reasonCode
@@ -566,7 +567,7 @@ export class Orchestrator {
               contractHash: newNode.contractHash
             };
             stateByTask.set(newNode.taskId, newRecord);
-            ctx.db.upsertTask(newRecord);
+            await ctx.db.upsertTask(newRecord);
             scheduler.add(newNode);
           } else {
             // Task already existed.
@@ -577,7 +578,7 @@ export class Orchestrator {
             // so the scheduler can re-evaluate its dependencies.
             if (record && !this.isTerminalTaskState(record.state)) {
               record.state = "PENDING";
-              ctx.db.upsertTask(record);
+              await ctx.db.upsertTask(record);
               
               // If it's already in the scheduler queue, update its contract.
               // Otherwise, add it back to the queue.
@@ -600,7 +601,7 @@ export class Orchestrator {
 
         ctx.run.state = "DISPATCHING";
         ctx.run.replanEvidence = undefined;
-        this.persistRun(ctx);
+        await this.persistRun(ctx);
         continue;
       }
 
@@ -611,11 +612,11 @@ export class Orchestrator {
           // 💡 What: Grouping multiple task updates into a single SQLite transaction.
           // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
           // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making run finalization significantly faster.
-          ctx.db.transaction(() => {
+          await ctx.db.transaction(async () => {
             for (const unresolvedTask of unresolved) {
               unresolvedTask.state = "ESCALATED";
               unresolvedTask.reasonCode = REASON_CODES.ABORTED_POLICY;
-              ctx.db.upsertTask(unresolvedTask);
+              await ctx.db.upsertTask(unresolvedTask);
               ctx.events.append(ctx.run.runId, "TASK_ESCALATED", {
                 taskId: unresolvedTask.taskId,
                 reasonCode: unresolvedTask.reasonCode,
@@ -640,13 +641,13 @@ export class Orchestrator {
     const escalated = [...stateByTask.values()].filter((record) => record.state === "ESCALATED");
     if (escalated.length > 0) {
       const primary = escalated[0]!;
-      return this.completeRun(ctx, "ABORTED_POLICY", primary.reasonCode ?? REASON_CODES.ABORTED_POLICY, {
+      return await this.completeRun(ctx, "ABORTED_POLICY", primary.reasonCode ?? REASON_CODES.ABORTED_POLICY, {
         escalated: escalated.map((record) => ({ taskId: record.taskId, reasonCode: record.reasonCode }))
       });
     }
 
-    this.transitionRun(ctx, "COMPLETED");
-    return this.completeRun(ctx, "COMPLETED", undefined, {
+    await this.transitionRun(ctx, "COMPLETED");
+    return await this.completeRun(ctx, "COMPLETED", undefined, {
       tasks: [...stateByTask.values()],
       metrics: this.metrics.snapshot()
     });
@@ -667,7 +668,7 @@ export class Orchestrator {
   ): Promise<void> {
     record.attempts += 1;
     record.state = "LEASE_ACQUIRED";
-    ctx.db.recordTaskAttempt(ctx.run.runId, task.taskId, record.attempts, record.state);
+    await ctx.db.recordTaskAttempt(ctx.run.runId, task.taskId, record.attempts, record.state);
     ctx.events.append(ctx.run.runId, "TASK_ATTEMPT", { taskId: task.taskId, attempt: record.attempts });
     this.progress(ctx, "task_attempt", `Task ${task.taskId} attempt ${record.attempts} started`, {
       taskId: task.taskId,
@@ -679,16 +680,16 @@ export class Orchestrator {
     const leases = await this.acquireWriteLeasesWithRetry(ctx, lockManager, resourceKeys, task.taskId);
 
     for (const lease of leases) {
-      ctx.db.upsertLease(ctx.run.runId, lease.resourceKey, task.taskId, lease.expiresAt, lease.fencingToken);
+      await ctx.db.upsertLease(ctx.run.runId, lease.resourceKey, task.taskId, lease.expiresAt, lease.fencingToken);
     }
     heartbeat.start(task.taskId, leases);
 
     const baseCommit = await this.gitHead(ctx.run.repoPath);
     const worktree = await worktreeManager.create(ctx.run.repoPath, ctx.run.runId, task.taskId, baseCommit);
-    this.injectWorktreeMemory(ctx, worktree.path, task, stateByTask);
+    await this.injectWorktreeMemory(ctx, worktree.path, task, stateByTask);
     const consumedArtifacts = task.artifactIO.consumes ?? [];
     const consumedArtifactKeys = consumedArtifacts.map((artifact) => artifactKey(ctx.run.repoPath, artifact));
-    const registrySignatures = ctx.db.listArtifactSignatures(ctx.run.runId, consumedArtifactKeys);
+    const registrySignatures = await ctx.db.listArtifactSignatures(ctx.run.runId, consumedArtifactKeys);
     const worktreeSignatures = collectArtifactSignatures(worktree.path, consumedArtifacts);
     const priorSignatures: ArtifactSignatureMap = {
       ...worktreeSignatures,
@@ -697,7 +698,7 @@ export class Orchestrator {
 
     try {
       record.state = "RUNNING";
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
 
       const contextPack = buildContextPack(worktree.path, task);
       const immutable = {
@@ -708,7 +709,7 @@ export class Orchestrator {
 
       let failureEvidence: string[] | undefined;
       const targetTaskId = task.type === "repair" && task.dependencies[0] ? task.dependencies[0] : task.taskId;
-      const repairEvents = ctx.db.listRepairEvents(ctx.run.runId, targetTaskId);
+      const repairEvents = await ctx.db.listRepairEvents(ctx.run.runId, targetTaskId);
       if (repairEvents.length > 0) {
         failureEvidence = repairEvents.map((e) => `[Attempt ${e.attempt} - ${e.failureClass}]: ${e.details}`);
       }
@@ -723,7 +724,7 @@ export class Orchestrator {
         failureEvidence
       });
 
-      const previousEnvelope = ctx.db.getLatestPromptEnvelope(ctx.run.runId, task.taskId);
+      const previousEnvelope = await ctx.db.getLatestPromptEnvelope(ctx.run.runId, task.taskId);
       if (previousEnvelope) {
         const previous = {
           ...envelope,
@@ -738,7 +739,7 @@ export class Orchestrator {
         }
       }
 
-      ctx.db.recordPromptEnvelope(
+      await ctx.db.recordPromptEnvelope(
         ctx.run.runId,
         task.taskId,
         record.attempts,
@@ -854,7 +855,7 @@ export class Orchestrator {
       if (execution.exitCode !== 0) {
         throw this.errorWithCode(`Task ${task.taskId} execution failed: ${execution.stderr || execution.stdout}`, REASON_CODES.EXEC_FAILED);
       }
-      this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(task.provider));
+      await this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(task.provider));
 
       const marker = parseCompletionMarker(execution.stdout);
       if (marker) {
@@ -874,7 +875,7 @@ export class Orchestrator {
           while ((match = axiomRegex.exec(marker.research)) !== null) {
             const content = match[1]?.trim();
             if (content) {
-              ctx.db.upsertAxiom({
+              await ctx.db.upsertAxiom({
                 runId: ctx.run.runId,
                 axiomId: sha256(`${ctx.run.runId}:${content}`),
                 content,
@@ -893,7 +894,7 @@ export class Orchestrator {
 
       record.state = "COMMIT_PRODUCED";
       record.commitHash = commitHash;
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
       ctx.events.append(ctx.run.runId, "TASK_COMMIT_PRODUCED", {
         taskId: task.taskId,
         commitHash
@@ -906,7 +907,7 @@ export class Orchestrator {
       }
 
       record.state = "SCOPE_PASSED";
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
 
       for (const lease of leases) {
         if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
@@ -915,14 +916,14 @@ export class Orchestrator {
       }
 
       record.state = "MERGE_QUEUED";
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
       ctx.events.append(ctx.run.runId, "TASK_MERGE_QUEUED", { taskId: task.taskId, commitHash });
 
       await mergeQueue.enqueue(async () => {
         const mergeTimer = `merge.duration.${task.taskId}.${record.attempts}`;
         this.metrics.startTimer(mergeTimer, { taskId: task.taskId, provider: task.provider });
         const integrationStart = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_START", { taskId: task.taskId, commitHash });
-        ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "MERGE_QUEUED", integrationStart.seq, commitHash);
+        await ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "MERGE_QUEUED", integrationStart.seq, commitHash);
 
         for (const lease of leases) {
           if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
@@ -948,7 +949,7 @@ export class Orchestrator {
 
         await this.integrateCommit(ctx, task, commitHash, leases[0]?.fencingToken ?? 0, leases[0]?.resourceKey, lockManager);
         record.state = "MERGED";
-        ctx.db.upsertTask(record);
+        await ctx.db.upsertTask(record);
         ctx.events.append(ctx.run.runId, "TASK_MERGED", { taskId: task.taskId, commitHash });
 
         try {
@@ -985,7 +986,7 @@ export class Orchestrator {
               this.metrics.endTimer(gateTimer);
             }
           })();
-          ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
+          await ctx.db.recordGateResult(ctx.run.runId, task.taskId, gate.command, gate.exitCode, gate.stdout, gate.stderr);
           if (!gate.ok) {
             throw this.errorWithCode(`Post-merge gate failed for ${task.taskId}`, REASON_CODES.MERGE_GATE_FAILED);
           }
@@ -993,11 +994,11 @@ export class Orchestrator {
           const producedArtifacts = task.artifactIO.produces ?? [];
           const producedSignatures = collectArtifactSignatures(ctx.run.repoPath, producedArtifacts);
           for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
-            ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
+            await ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
           }
 
           const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
-          ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
+          await ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);
         } catch (verificationError) {
           await runCommand("git", ["-C", ctx.run.repoPath, "revert", "--no-commit", commitHash], { timeoutMs: 15_000 });
           await runCommand("git", ["-C", ctx.run.repoPath, "commit", "-m", `Revert "${commitHash}" due to verification failure`], { timeoutMs: 15_000 });
@@ -1013,7 +1014,7 @@ export class Orchestrator {
       });
 
       record.state = "VERIFIED";
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
       ctx.events.append(ctx.run.runId, "TASK_VERIFIED", { taskId: task.taskId, commitHash });
       this.progress(ctx, "task_verified", `Task ${task.taskId} verified`, {
         taskId: task.taskId,
@@ -1021,12 +1022,12 @@ export class Orchestrator {
       });
 
       // Tier 2: Trigger Narrative Condensation (Synchronous to ensure next task sees it)
-      const verified = ctx.db.listRecentVerifiedTasks(ctx.run.runId, 100);
+      const verified = await ctx.db.listRecentVerifiedTasks(ctx.run.runId, 100);
       if (verified.length > 5) {
         try {
           const summary = await condenseHistory(ctx.run.objective, verified, ctx.run.repoPath, ctx.run.narrativeSummary);
           ctx.run.narrativeSummary = summary;
-          ctx.db.upsertRun(ctx.run);
+          await ctx.db.upsertRun(ctx.run);
           ctx.events.append(ctx.run.runId, "NARRATIVE_UPDATED", { summary });
         } catch (err) {
           this.logger.error("Condenser failed", { error: (err as Error).message, runId: ctx.run.runId });
@@ -1042,7 +1043,7 @@ export class Orchestrator {
       }
 
       if (reasonCode === REASON_CODES.EXEC_FAILED || reasonCode === REASON_CODES.AUTH_MISSING) {
-        this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(task.provider, errorText));
+        await this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(task.provider, errorText));
       }
       this.progress(ctx, "task_error", `Task ${task.taskId} failed: ${errorText}`, {
         taskId: task.taskId,
@@ -1050,32 +1051,32 @@ export class Orchestrator {
       });
 
       if (isNonRepairableExecutionFailure(errorText, reasonCode)) {
-        ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, "NON_REPAIRABLE_EXEC", 0, errorText);
+        await ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, "NON_REPAIRABLE_EXEC", 0, errorText);
         record.state = "ESCALATED";
         record.reasonCode = reasonCode;
-        ctx.db.upsertTask(record);
+        await ctx.db.upsertTask(record);
         throw error;
       }
 
       const failureClass = classifyFailure(errorText, reasonCode);
       const attempt = repairBudget.increment(failureClass);
-      ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, errorText);
+      await ctx.db.recordRepairEvent(ctx.run.runId, task.taskId, failureClass, attempt, errorText);
       if (reasonCode === REASON_CODES.STALE_TASK) {
         this.metrics.inc("stale.replan_triggered");
       }
 
       if (repairBudget.allowed(failureClass)) {
         if (reasonCode === REASON_CODES.STALE_TASK) {
-          this.transitionRun(ctx, "REPLANNING");
+          await this.transitionRun(ctx, "REPLANNING");
           record.state = "PENDING";
           record.reasonCode = REASON_CODES.STALE_REPLAN_TRIGGERED;
-          ctx.db.upsertTask(record);
+          await ctx.db.upsertTask(record);
           ctx.events.append(ctx.run.runId, "TASK_REPLAN_ENQUEUED", {
             taskId: task.taskId,
             attempt,
             failureClass
           });
-          this.transitionRun(ctx, "DISPATCHING");
+          await this.transitionRun(ctx, "DISPATCHING");
           return;
         }
 
@@ -1109,7 +1110,7 @@ export class Orchestrator {
           attempts: 0,
           contractHash: repairTask.contractHash
         });
-        ctx.db.upsertTask(stateByTask.get(repairTask.taskId)!);
+        await ctx.db.upsertTask(stateByTask.get(repairTask.taskId)!);
         ctx.events.append(ctx.run.runId, "TASK_REPAIR_ENQUEUED", {
           taskId: task.taskId,
           repairTaskId: repairTask.taskId,
@@ -1119,18 +1120,18 @@ export class Orchestrator {
 
         record.state = "VERIFY_FAILED";
         record.reasonCode = reasonCode;
-        ctx.db.upsertTask(record);
+        await ctx.db.upsertTask(record);
         return;
       }
 
       record.state = "ESCALATED";
       record.reasonCode = reasonCode;
-      ctx.db.upsertTask(record);
+      await ctx.db.upsertTask(record);
       throw error;
     } finally {
       heartbeat.stopOwner(task.taskId);
       lockManager.releaseOwner(task.taskId);
-      ctx.db.removeLeasesByTask(ctx.run.runId, task.taskId);
+      await ctx.db.removeLeasesByTask(ctx.run.runId, task.taskId);
       await worktreeManager.remove(ctx.run.repoPath, worktree.path).catch(() => undefined);
     }
   }
@@ -1143,7 +1144,7 @@ export class Orchestrator {
     resourceKey: string | undefined,
     lockManager: LockManager
   ): Promise<void> {
-    this.transitionRun(ctx, "INTEGRATING");
+    await this.transitionRun(ctx, "INTEGRATING");
 
     if (resourceKey && !lockManager.validateFencing(resourceKey, task.taskId, fencingToken)) {
       throw this.errorWithCode(`Fencing token invalid or expired immediately before integrate`, REASON_CODES.LOCK_TIMEOUT);
@@ -1168,7 +1169,7 @@ export class Orchestrator {
       stdin: `${amended}\n`
     });
 
-    this.transitionRun(ctx, "VERIFYING");
+    await this.transitionRun(ctx, "VERIFYING");
   }
 
   private async preflightStageA(ctx: RuntimeContext, options: RunCliOptions): Promise<void> {
@@ -1252,8 +1253,8 @@ export class Orchestrator {
     };
   }
 
-  private recordBaselineOk(ctx: RuntimeContext, gate: BaselineGateResult): void {
-    this.transitionRun(ctx, "BASELINE_OK");
+  private async recordBaselineOk(ctx: RuntimeContext, gate: BaselineGateResult): Promise<void> {
+    await this.transitionRun(ctx, "BASELINE_OK");
     ctx.events.append(ctx.run.runId, "BASELINE_OK", { command: gate.command, exitCode: gate.exitCode });
   }
 
@@ -1286,7 +1287,7 @@ export class Orchestrator {
     const audited = auditPlan(routed);
     const frozen = freezePlan(audited.dag);
 
-    this.transitionRun(ctx, "PLAN_FROZEN");
+    await this.transitionRun(ctx, "PLAN_FROZEN");
 
     writeFileSync(join(ctx.runDir, "plan.raw.json"), JSON.stringify(planned, null, 2), "utf8");
     writeFileSync(join(ctx.runDir, "plan.routed.json"), JSON.stringify({ dag: routed, routeDecisions }, null, 2), "utf8");
@@ -1407,17 +1408,17 @@ export class Orchestrator {
     ].join("\n");
   }
 
-  private injectWorktreeMemory(
+  private async injectWorktreeMemory(
     ctx: RuntimeContext,
     worktreePath: string,
     task: TaskContract,
     stateByTask: Map<string, TaskRecord>
-  ): void {
+  ): Promise<void> {
     const run = ctx.run;
-    const repairEvents = ctx.db.listRepairEvents(run.runId, task.taskId);
-    const axioms = ctx.db.listAxioms(run.runId);
+    const repairEvents = await ctx.db.listRepairEvents(run.runId, task.taskId);
+    const axioms = await ctx.db.listAxioms(run.runId);
     // Tier 1: Active Memory (Sliding Window - last 5 verified tasks)
-    const recentTasks = ctx.db.listRecentVerifiedTasks(run.runId, 5);
+    const recentTasks = await ctx.db.listRecentVerifiedTasks(run.runId, 5);
 
     const memory = [
       `# Run Context & Memory`,
@@ -1551,27 +1552,27 @@ export class Orchestrator {
     return ["VERIFIED", "ESCALATED", "VERIFY_FAILED"].includes(state);
   }
 
-  private transitionRun(ctx: RuntimeContext, to: RunRecord["state"]): void {
+  private async transitionRun(ctx: RuntimeContext, to: RunRecord["state"]): Promise<void> {
     assertRunTransition(ctx.run.state, to);
     ctx.run.state = to;
     ctx.run.updatedAt = new Date().toISOString();
-    this.persistRun(ctx);
+    await this.persistRun(ctx);
     ctx.events.append(ctx.run.runId, "RUN_STATE", {
       state: to
     });
     this.progress(ctx, "run_state", `Run state changed to ${to}`, { state: to });
   }
 
-  private persistRun(ctx: RuntimeContext): void {
-    ctx.db.upsertRun(ctx.run);
+  private async persistRun(ctx: RuntimeContext): Promise<void> {
+    await ctx.db.upsertRun(ctx.run);
   }
 
-  private completeRun(
+  private async completeRun(
     ctx: RuntimeContext,
     state: RunRecord["state"],
     reasonCode: ReasonCode | undefined,
     summary: Record<string, unknown>
-  ): RunOutcome {
+  ): Promise<RunOutcome> {
     if (ctx.run.state !== state) {
       if (ctx.run.state === "COMPLETED" || ctx.run.state.startsWith("ABORTED")) {
         // terminal already set
@@ -1583,7 +1584,7 @@ export class Orchestrator {
 
     ctx.run.reasonCode = reasonCode;
     ctx.run.updatedAt = new Date().toISOString();
-    this.persistRun(ctx);
+    await this.persistRun(ctx);
     const metricsSnapshot = this.metrics.snapshot();
     const stageLatencyMs = this.buildStageLatencySummary(metricsSnapshot);
     if (!("metrics" in summary)) {
@@ -1672,8 +1673,8 @@ export class Orchestrator {
     }, {});
   }
 
-  private persistProviderHealth(ctx: RuntimeContext, snapshot: ProviderHealthSnapshot): void {
-    ctx.db.upsertProviderHealth(ctx.run.runId, snapshot);
+  private async persistProviderHealth(ctx: RuntimeContext, snapshot: ProviderHealthSnapshot): Promise<void> {
+    await ctx.db.upsertProviderHealth(ctx.run.runId, snapshot);
     this.metrics.inc("provider.health_updates");
     ctx.events.append(ctx.run.runId, "PROVIDER_HEALTH_UPDATED", {
       provider: snapshot.provider,

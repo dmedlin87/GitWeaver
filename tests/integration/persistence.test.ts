@@ -24,13 +24,13 @@ function makeTempDir(): string {
 }
 
 describe("persistence integration", () => {
-  it("persists run/task state and appends event log records", () => {
+  it("persists run/task state and appends event log records", async () => {
     const root = makeTempDir();
     const dbPath = join(root, "state.sqlite");
     const eventPath = join(root, "events.ndjson");
 
     const db = new OrchestratorDb(dbPath);
-    db.migrate();
+    await db.migrate();
 
     const run: RunRecord = {
       runId: "run-1",
@@ -42,7 +42,7 @@ describe("persistence integration", () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    db.upsertRun(run);
+    await db.upsertRun(run);
 
     const task: TaskRecord = {
       runId: run.runId,
@@ -53,17 +53,17 @@ describe("persistence integration", () => {
       attempts: 0,
       contractHash: "hash-1"
     };
-    db.upsertTask(task);
+    await db.upsertTask(task);
 
-    const loadedRun = db.getRun(run.runId);
-    const loadedTasks = db.listTasks(run.runId);
+    const loadedRun = await db.getRun(run.runId);
+    const loadedTasks = await db.listTasks(run.runId);
     expect(loadedRun?.runId).toBe(run.runId);
     expect(loadedTasks).toHaveLength(1);
     expect(loadedTasks[0]?.taskId).toBe(task.taskId);
 
-    db.recordPromptEnvelope(run.runId, task.taskId, 1, "imm-1", "contract-1", "context-1");
-    db.recordPromptEnvelope(run.runId, task.taskId, 2, "imm-2", "contract-2", "context-2");
-    const latestEnvelope = db.getLatestPromptEnvelope(run.runId, task.taskId);
+    await db.recordPromptEnvelope(run.runId, task.taskId, 1, "imm-1", "contract-1", "context-1");
+    await db.recordPromptEnvelope(run.runId, task.taskId, 2, "imm-2", "contract-2", "context-2");
+    const latestEnvelope = await db.getLatestPromptEnvelope(run.runId, task.taskId);
     expect(latestEnvelope).toEqual({
       attempt: 2,
       immutableSectionsHash: "imm-2",
@@ -71,9 +71,9 @@ describe("persistence integration", () => {
       contextPackHash: "context-2"
     });
 
-    db.upsertArtifactSignature(run.runId, "src/a.ts", "sig-a");
-    db.upsertArtifactSignature(run.runId, "src/b.ts", "sig-b");
-    expect(db.listArtifactSignatures(run.runId, ["src/a.ts", "src/b.ts", "src/c.ts"])).toEqual({
+    await db.upsertArtifactSignature(run.runId, "src/a.ts", "sig-a");
+    await db.upsertArtifactSignature(run.runId, "src/b.ts", "sig-b");
+    expect(await db.listArtifactSignatures(run.runId, ["src/a.ts", "src/b.ts", "src/c.ts"])).toEqual({
       "src/a.ts": "sig-a",
       "src/b.ts": "sig-b"
     });

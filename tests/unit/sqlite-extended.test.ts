@@ -11,10 +11,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OrchestratorDb, isSqliteBusyError } from "../../src/persistence/sqlite.js";
 
-function makeDb(): { db: OrchestratorDb; dir: string } {
+async function makeDb(): Promise<{ db: OrchestratorDb; dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), "gw-sqlite-ext-"));
   const db = new OrchestratorDb(join(dir, "state.sqlite"));
-  db.migrate();
+  await db.migrate();
   return { db, dir };
 }
 
@@ -63,8 +63,8 @@ describe("OrchestratorDb – additional branches", () => {
   let db: OrchestratorDb;
   let dir: string;
 
-  beforeEach(() => {
-    const made = makeDb();
+  beforeEach(async () => {
+    const made = await makeDb();
     db = made.db;
     dir = made.dir;
   });
@@ -74,19 +74,19 @@ describe("OrchestratorDb – additional branches", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("listArtifactSignatures returns empty object for empty key list", () => {
-    const result = db.listArtifactSignatures("run-1", []);
+  it("listArtifactSignatures returns empty object for empty key list", async () => {
+    const result = await db.listArtifactSignatures("run-1", []);
     expect(result).toEqual({});
   });
 
-  it("listArtifactSignatures returns {} when run has no artifacts", () => {
-    const result = db.listArtifactSignatures("run-1", ["src/a.ts"]);
+  it("listArtifactSignatures returns {} when run has no artifacts", async () => {
+    const result = await db.listArtifactSignatures("run-1", ["src/a.ts"]);
     expect(result).toEqual({});
   });
 
-  it("listArtifactSignatures returns matching signatures after upsert", () => {
+  it("listArtifactSignatures returns matching signatures after upsert", async () => {
     const now = new Date().toISOString();
-    db.upsertRun({
+    await db.upsertRun({
       runId: "run-art",
       objective: "test",
       repoPath: "/tmp",
@@ -97,19 +97,19 @@ describe("OrchestratorDb – additional branches", () => {
       updatedAt: now
     });
 
-    db.upsertArtifactSignature("run-art", "src/foo.ts", "sha-abc", "src/foo.ts");
-    db.upsertArtifactSignature("run-art", "src/bar.ts", "sha-xyz", "src/bar.ts");
+    await db.upsertArtifactSignature("run-art", "src/foo.ts", "sha-abc", "src/foo.ts");
+    await db.upsertArtifactSignature("run-art", "src/bar.ts", "sha-xyz", "src/bar.ts");
 
-    const result = db.listArtifactSignatures("run-art", ["src/foo.ts", "src/bar.ts"]);
+    const result = await db.listArtifactSignatures("run-art", ["src/foo.ts", "src/bar.ts"]);
     expect(result["src/foo.ts"]).toBe("sha-abc");
     expect(result["src/bar.ts"]).toBe("sha-xyz");
   });
 
-  it("transaction rolls back on exception", () => {
-    expect(() => {
-      db.transaction(() => {
+  it("transaction rolls back on exception", async () => {
+    await expect(async () => {
+      await db.transaction(async () => {
         const now = new Date().toISOString();
-        db.upsertRun({
+        await db.upsertRun({
           runId: "txn-fail",
           objective: "test",
           repoPath: "/tmp",
@@ -121,26 +121,26 @@ describe("OrchestratorDb – additional branches", () => {
         });
         throw new Error("force rollback");
       });
-    }).toThrow("force rollback");
+    }).rejects.toThrow("force rollback");
 
-    expect(db.getRun("txn-fail")).toBeUndefined();
+    expect(await db.getRun("txn-fail")).toBeUndefined();
   });
 
-  it("getRun returns undefined for missing run", () => {
-    expect(db.getRun("nonexistent-run")).toBeUndefined();
+  it("getRun returns undefined for missing run", async () => {
+    expect(await db.getRun("nonexistent-run")).toBeUndefined();
   });
 
-  it("getResumeCheckpoint returns undefined for missing run", () => {
-    expect(db.getResumeCheckpoint("nonexistent-run")).toBeUndefined();
+  it("getResumeCheckpoint returns undefined for missing run", async () => {
+    expect(await db.getResumeCheckpoint("nonexistent-run")).toBeUndefined();
   });
 
-  it("listTasks returns empty array for unknown run", () => {
-    expect(db.listTasks("nonexistent-run")).toEqual([]);
+  it("listTasks returns empty array for unknown run", async () => {
+    expect(await db.listTasks("nonexistent-run")).toEqual([]);
   });
 
-  it("upsertRun then getRun round-trips correctly", () => {
+  it("upsertRun then getRun round-trips correctly", async () => {
     const now = new Date().toISOString();
-    db.upsertRun({
+    await db.upsertRun({
       runId: "run-rt",
       objective: "Round trip",
       repoPath: "/repo",
@@ -150,13 +150,13 @@ describe("OrchestratorDb – additional branches", () => {
       createdAt: now,
       updatedAt: now
     });
-    const run = db.getRun("run-rt");
+    const run = await db.getRun("run-rt");
     expect(run).toBeDefined();
     expect(run!.objective).toBe("Round trip");
     expect(run!.state).toBe("INGEST");
   });
 
-  it("listLeases returns empty when no leases exist for run", () => {
-    expect(db.listLeases("no-such-run")).toEqual([]);
+  it("listLeases returns empty when no leases exist for run", async () => {
+    expect(await db.listLeases("no-such-run")).toEqual([]);
   });
 });

@@ -11,11 +11,11 @@ vi.mock("node:fs", () => ({
 
 vi.mock("../../src/persistence/sqlite.js", () => ({
   OrchestratorDb: vi.fn().mockImplementation(() => ({
-    migrate: vi.fn(),
-    listRepairEvents: vi.fn().mockReturnValue([]),
-    listAxioms: vi.fn().mockReturnValue([]),
-    listRecentVerifiedTasks: vi.fn().mockReturnValue([]),
-    upsertAxiom: vi.fn()
+    migrate: vi.fn().mockResolvedValue(undefined),
+    listRepairEvents: vi.fn().mockResolvedValue([]),
+    listAxioms: vi.fn().mockResolvedValue([]),
+    listRecentVerifiedTasks: vi.fn().mockResolvedValue([]),
+    upsertAxiom: vi.fn().mockResolvedValue(undefined)
   })),
   isSqliteBusyError: vi.fn().mockReturnValue(false)
 }));
@@ -25,7 +25,7 @@ describe("Orchestrator Three-Tiered Memory", () => {
     vi.clearAllMocks();
   });
 
-  it("injectWorktreeMemory writes axioms and recent tasks", () => {
+  it("injectWorktreeMemory writes axioms and recent tasks", async () => {
     const orch = new Orchestrator() as any;
     const ctx = {
       run: {
@@ -33,17 +33,17 @@ describe("Orchestrator Three-Tiered Memory", () => {
         objective: "Build a rocket"
       },
       db: {
-        listRepairEvents: vi.fn().mockReturnValue([]),
-        listAxioms: vi.fn().mockReturnValue([
+        listRepairEvents: vi.fn().mockResolvedValue([]),
+        listAxioms: vi.fn().mockResolvedValue([
           { content: "Always use liquid fuel" }
         ]),
-        listRecentVerifiedTasks: vi.fn().mockReturnValue([
+        listRecentVerifiedTasks: vi.fn().mockResolvedValue([
           { taskId: "task-99", summary: "Engine built" }
         ])
       }
     };
     
-    orch.injectWorktreeMemory(ctx, "/tmp/worktree", { taskId: "task-100" }, new Map());
+    await orch.injectWorktreeMemory(ctx, "/tmp/worktree", { taskId: "task-100" }, new Map());
 
     const runContextCall = (fs.writeFileSync as any).mock.calls.find((call: any) => call[0].includes("run_context.md"));
     const content = runContextCall[1];
@@ -56,34 +56,6 @@ describe("Orchestrator Three-Tiered Memory", () => {
   });
 
   it("extracts axioms from research field in executeTask", async () => {
-    const orch = new Orchestrator() as any;
-    const ctx = {
-      run: { runId: "run-123" },
-      providerHealth: { onSuccess: vi.fn() },
-      db: {
-        upsertTask: vi.fn(),
-        upsertAxiom: vi.fn(),
-        listRepairEvents: vi.fn().mockReturnValue([]),
-        listAxioms: vi.fn().mockReturnValue([]),
-        listRecentVerifiedTasks: vi.fn().mockReturnValue([])
-      }
-    };
-    
-    // Mock parseCompletionMarker to return an axiom
-    vi.mock("../../src/execution/completion-parser.js", async (importOriginal) => {
-      const actual = await importOriginal<any>();
-      return {
-        ...actual,
-        parseCompletionMarker: () => ({
-          status: "success",
-          summary: "Done",
-          research: "Some notes. [AXIOM] Use TypeScript for everything. [AXIOM] No global state."
-        })
-      };
-    });
-
-    // We need to mock the rest of executeTask's dependencies or just test the logic directly if exported.
-    // Since it's private, we'll rely on the unit test for now. 
     // Manual check of the regex logic:
     const research = "Some notes. [AXIOM] Use TypeScript for everything. [AXIOM] No global state.";
     const axioms: string[] = [];

@@ -35,47 +35,47 @@ describe("OrchestratorDb", () => {
         };
     }
 
-    it("executes operations in a transaction", () => {
+    it("executes operations in a transaction", async () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-"));
         dbPath = join(tempDir, "state.sqlite");
         db = new OrchestratorDb(dbPath);
-        db.migrate();
+        await db.migrate();
 
-        db.transaction(() => {
-            db.upsertRun(makeRun("run-txn"));
+        await db.transaction(async () => {
+            await db.upsertRun(makeRun("run-txn"));
         });
 
-        const run = db.getRun("run-txn");
+        const run = await db.getRun("run-txn");
         expect(run).toBeDefined();
         expect(run?.runId).toBe("run-txn");
     });
 
-    it("rolls back transaction on error", () => {
+    it("rolls back transaction on error", async () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-rollback-"));
         dbPath = join(tempDir, "state.sqlite");
         db = new OrchestratorDb(dbPath);
-        db.migrate();
+        await db.migrate();
 
         try {
-            db.transaction(() => {
-                db.upsertRun(makeRun("run-rollback"));
+            await db.transaction(async () => {
+                await db.upsertRun(makeRun("run-rollback"));
                 throw new Error("Simulated failure");
             });
         } catch (e) {
             // expected
         }
 
-        const run = db.getRun("run-rollback");
+        const run = await db.getRun("run-rollback");
         expect(run).toBeUndefined();
     });
 
-    it("persists provider health snapshots and resume checkpoints", () => {
+    it("persists provider health snapshots and resume checkpoints", async () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-health-"));
         dbPath = join(tempDir, "state.sqlite");
         db = new OrchestratorDb(dbPath);
-        db.migrate();
+        await db.migrate();
 
-        db.upsertProviderHealth("run-health", {
+        await db.upsertProviderHealth("run-health", {
             provider: "claude",
             score: 70,
             lastErrors: ["429"],
@@ -85,13 +85,13 @@ describe("OrchestratorDb", () => {
             backoffSec: 10
         });
 
-        const snapshots = db.listProviderHealth("run-health");
+        const snapshots = await db.listProviderHealth("run-health");
         expect(snapshots).toHaveLength(1);
         expect(snapshots[0]?.provider).toBe("claude");
         expect(snapshots[0]?.consecutiveFailures).toBe(2);
 
-        db.upsertResumeCheckpoint("run-health", "task-1", "MERGE_QUEUED", 41, "abc123");
-        const checkpoint = db.getResumeCheckpoint("run-health");
+        await db.upsertResumeCheckpoint("run-health", "task-1", "MERGE_QUEUED", 41, "abc123");
+        const checkpoint = await db.getResumeCheckpoint("run-health");
         expect(checkpoint).toMatchObject({
             runId: "run-health",
             taskId: "task-1",
@@ -101,7 +101,7 @@ describe("OrchestratorDb", () => {
         });
     });
 
-    it("applies SQLite WAL, synchronous, and busy timeout pragmas", () => {
+    it("applies SQLite WAL, synchronous, and busy timeout pragmas", async () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-pragmas-"));
         dbPath = join(tempDir, "state.sqlite");
         db = new OrchestratorDb(dbPath, {
@@ -109,7 +109,7 @@ describe("OrchestratorDb", () => {
             synchronous: "NORMAL",
             busyTimeoutMs: 3210
         });
-        db.migrate();
+        await db.migrate();
 
         const native = (db as unknown as { db: DatabaseSync }).db;
         const journal = native.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
@@ -121,7 +121,7 @@ describe("OrchestratorDb", () => {
         expect(timeout.timeout).toBe(3210);
     });
 
-    it("retries locked writes with bounded retry telemetry", () => {
+    it("retries locked writes with bounded retry telemetry", async () => {
         tempDir = mkdtempSync(join(tmpdir(), "gw-sqlite-test-busy-"));
         dbPath = join(tempDir, "state.sqlite");
 
@@ -133,13 +133,13 @@ describe("OrchestratorDb", () => {
             onBusyRetry: (_operation, attempt) => retryAttempts.push(attempt),
             onBusyExhausted: (_operation, attempts) => exhaustedAttempts.push(attempts)
         });
-        db.migrate();
+        await db.migrate();
 
         const locker = new DatabaseSync(dbPath);
         locker.exec("BEGIN IMMEDIATE");
 
         try {
-            expect(() => db.upsertRun(makeRun("run-busy"))).toThrowError(/database is locked/i);
+            await expect(db.upsertRun(makeRun("run-busy"))).rejects.toThrowError(/database is locked/i);
         } finally {
             locker.exec("ROLLBACK");
             locker.close();
@@ -161,7 +161,7 @@ describe("OrchestratorDb", () => {
             onBusyRetry: (_operation, attempt) => retryAttempts.push(attempt),
             onBusyExhausted: (_operation, attempts) => exhaustedAttempts.push(attempts)
         });
-        db.migrate();
+        await db.migrate();
 
         const worker = new Worker(
             `
@@ -206,8 +206,8 @@ describe("OrchestratorDb", () => {
 
         try {
             await waitFor("locked");
-            db.upsertRun(makeRun("run-busy-cleared"));
-            const run = db.getRun("run-busy-cleared");
+            await db.upsertRun(makeRun("run-busy-cleared"));
+            const run = await db.getRun("run-busy-cleared");
             expect(run?.runId).toBe("run-busy-cleared");
             expect(retryAttempts.length).toBeGreaterThan(0);
             expect(exhaustedAttempts).toEqual([]);

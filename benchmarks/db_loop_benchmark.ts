@@ -1,26 +1,25 @@
-
 import { OrchestratorDb } from "../src/persistence/sqlite.js";
-import { unlinkSync, existsSync } from "fs";
-import { performance } from "perf_hooks";
+import { unlinkSync, existsSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 
 const DB_PATH = "bench_test.sqlite";
 
-function setup() {
+async function setup() {
     if (existsSync(DB_PATH)) {
-        unlinkSync(DB_PATH);
+        try { unlinkSync(DB_PATH); } catch (e) {}
     }
     const db = new OrchestratorDb(DB_PATH);
-    db.migrate();
+    await db.migrate();
     return db;
 }
 
-function runBenchmark(count: number) {
-    let db = setup();
+async function runBenchmark(count: number) {
+    let db = await setup();
 
     console.log(`Pre-inserting ${count} tasks...`);
     // Pre-insert tasks
     for (let i = 0; i < count; i++) {
-        db.upsertTask({
+        await db.upsertTask({
             runId: "run-1",
             taskId: `task-${i}`,
             provider: "codex",
@@ -35,7 +34,7 @@ function runBenchmark(count: number) {
     let start = performance.now();
 
     for (let i = 0; i < count; i++) {
-        db.upsertTask({
+        await db.upsertTask({
             runId: "run-1",
             taskId: `task-${i}`,
             provider: "codex",
@@ -52,16 +51,16 @@ function runBenchmark(count: number) {
 
     db.close();
     if (existsSync(DB_PATH)) {
-        unlinkSync(DB_PATH);
+        try { unlinkSync(DB_PATH); } catch (e) {}
     }
 
     // --- Transaction Benchmark ---
-    db = setup();
+    db = await setup();
 
     console.log(`Pre-inserting ${count} tasks for transaction benchmark...`);
-    db.transaction(() => {
+    await db.transaction(async () => {
         for (let i = 0; i < count; i++) {
-            db.upsertTask({
+            await db.upsertTask({
                 runId: "run-2",
                 taskId: `task-${i}`,
                 provider: "codex",
@@ -89,9 +88,9 @@ function runBenchmark(count: number) {
         });
     }
 
-    db.transaction(() => {
+    await db.transaction(async () => {
         for (const task of updates) {
-            db.upsertTask(task);
+            await db.upsertTask(task);
         }
     });
 
@@ -101,8 +100,8 @@ function runBenchmark(count: number) {
 
     db.close();
     if (existsSync(DB_PATH)) {
-        unlinkSync(DB_PATH);
+        try { unlinkSync(DB_PATH); } catch (e) {}
     }
 }
 
-runBenchmark(1000);
+runBenchmark(1000).catch(console.error);
