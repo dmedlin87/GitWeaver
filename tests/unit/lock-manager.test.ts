@@ -63,7 +63,7 @@ describe("LockManager", () => {
       () => false
     );
 
-    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before execution");
+    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before queueing");
     expect(executed).toBe(false);
   });
 

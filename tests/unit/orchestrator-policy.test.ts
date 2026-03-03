@@ -238,9 +238,14 @@ describe("Orchestrator Policy Enforcement", () => {
       state: "PENDING",
     };
 
-    // Create a LockManager where validateFencing explicitly returns false
+    // Create a LockManager where validateFencing initially returns true, then false at enqueue time
     const failingLockManager = new LockManager(1000);
-    vi.spyOn(failingLockManager, "validateFencing").mockReturnValue(false);
+
+    // First call inside executeTask before setting MERGE_QUEUED returns true
+    // Second call inside mergeQueue.enqueue synchronous validation returns false
+    vi.spyOn(failingLockManager, "validateFencing")
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
 
     await expect(
       orchestrator.executeTask(

@@ -1012,6 +1012,13 @@ export class Orchestrator {
         } finally {
           this.metrics.endTimer(mergeTimer);
         }
+      }, () => {
+        for (const lease of leases) {
+          if (!lockManager.validateFencing(lease.resourceKey, task.taskId, lease.fencingToken)) {
+            return false;
+          }
+        }
+        return true;
       });
 
       record.state = "VERIFIED";
