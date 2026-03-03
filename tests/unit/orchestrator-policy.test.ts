@@ -140,7 +140,7 @@ describe("Orchestrator Policy Enforcement", () => {
       run: {
         runId: "run-1",
         repoPath: "/repo",
-        state: "DISPATCHING", // Fix: Must be in a state that allows transition to INTEGRATING
+        state: "VERIFYING", // State allows transition to INTEGRATING and REPLANNING
       },
       config: {
         baselineGateCommand: "pnpm test",
