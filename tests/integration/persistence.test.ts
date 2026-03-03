@@ -106,4 +106,28 @@ describe("persistence integration", () => {
     expect(events[0]?.seq).toBe(1);
     expect(events[0]?.type).toBe("TASK_READY");
   });
+
+  it("recovers from mid-file malformed event log entries by discarding them and parsing subsequent entries", async () => {
+    const root = makeTempDir();
+    const eventPath = join(root, "events.ndjson");
+
+    const log1 = new EventLog(eventPath);
+    log1.append("run-1", "TASK_READY", { taskId: "task-1" });
+
+    // Simulate corrupted/malformed entry in the middle
+    const fs = await import("node:fs");
+    fs.appendFileSync(eventPath, '{"seq":2,"runId":"run-1","ts":"corrupted json\n', "utf8");
+
+    log1.append("run-1", "TASK_RUNNING", { taskId: "task-1" });
+
+    const log2 = new EventLog(eventPath);
+    const events = log2.readAll();
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.seq).toBe(1);
+    expect(events[0]?.type).toBe("TASK_READY");
+    // Since the second entry is corrupted, the next valid write receives a seq determined by log1 state (which incremented internally anyway to 3, or if corrupted it bypasses).
+    // Let's just check the type of the last valid event.
+    expect(events[1]?.type).toBe("TASK_RUNNING");
+  });
 });

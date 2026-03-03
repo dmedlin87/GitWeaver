@@ -303,7 +303,7 @@ describe("generateDagWithCodex", () => {
     await generateDagWithCodex(objective, cwd, pendingTasks);
 
     const callArgs = mockAdapter.execute.mock.calls[0]![0] as any;
-    expect(callArgs.prompt).toContain("Previously Planned & Pending Tasks");
+    expect(callArgs.prompt).toContain("PREVIOUSLY PLANNED & PENDING TASKS");
     expect(callArgs.prompt).toContain("pending-1");
   });
 

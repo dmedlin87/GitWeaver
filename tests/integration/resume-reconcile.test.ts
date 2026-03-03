@@ -166,4 +166,79 @@ describe("resume reconciliation integration", () => {
     expect(decision.driftDetected).toBe(false);
     expect(decision.driftCommits).toEqual([]);
   });
+
+  it("escalates RESUME_AMBIGUOUS_STATE when event log shows merged but git is missing commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+    const eventPath = join(repo, "events.ndjson");
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+
+    const run: RunRecord = {
+      runId: "run-ambiguous",
+      objective: "check ambiguity",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const log = new EventLog(eventPath);
+    log.append(run.runId, "TASK_MERGED", { taskId: "task-missing" });
+    const events = new EventLog(eventPath).readAll();
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events
+    });
+
+    expect(decision.escalatedTaskIds).toContain("task-missing");
+    expect(decision.reasons["task-missing"]).toBe("RESUME_AMBIGUOUS_STATE");
+  });
+
+  it("requeues with RESUME_MISSING_COMMIT when db shows merged but git is missing commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+
+    const run: RunRecord = {
+      runId: "run-missing",
+      objective: "check missing commit",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-missing-git",
+        provider: "claude",
+        type: "code",
+        state: "MERGED", // DB says merged
+        attempts: 1,
+        contractHash: "hash-missing"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events: []
+    });
+
+    expect(decision.requeueTaskIds).toContain("task-missing-git");
+    expect(decision.reasons["task-missing-git"]).toBe("RESUME_MISSING_COMMIT");
+  });
 });
