@@ -43,8 +43,7 @@ describe('completion-parser', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null if marker payload is invalid JSON', () => {
-    // Note: Current implementation returns null immediately on JSON parse error
+  it('returns null if marker payload is invalid JSON and no valid marker exists', () => {
     const output = '__ORCH_DONE__: {invalid json}';
     const result = parseCompletionMarker(output);
     expect(result).toBeNull();
@@ -70,14 +69,31 @@ describe('completion-parser', () => {
     expect(result).toBeNull();
   });
 
-  it('stops processing on invalid JSON even if a valid marker follows', () => {
-    // Documenting current behavior: JSON parse error returns null immediately
+  it('parses valid marker after malformed marker', () => {
     const output = `
       __ORCH_DONE__: {invalid}
-      __ORCH_DONE__: {"status": "success", "files_changed": ["d.ts"], "summary": "skipped"}
+      __ORCH_DONE__: {"status": "success", "files_changed": ["d.ts"], "summary": "parsed"}
     `;
     const result = parseCompletionMarker(output);
-    expect(result).toBeNull();
+    expect(result).toEqual({
+      status: 'success',
+      files_changed: ['d.ts'],
+      summary: 'parsed',
+    });
+  });
+
+  it('parses only valid marker when multiple markers include malformed and invalid-status entries', () => {
+    const output = `
+      __ORCH_DONE__: {bad-json
+      __ORCH_DONE__: {"status": "pending", "files_changed": ["e.ts"], "summary": "invalid status"}
+      __ORCH_DONE__: {"status": "replan", "files_changed": ["f.ts"], "summary": "needs replanning"}
+    `;
+    const result = parseCompletionMarker(output);
+    expect(result).toEqual({
+      status: 'replan',
+      files_changed: ['f.ts'],
+      summary: 'needs replanning',
+    });
   });
 
   it('handles empty input', () => {
