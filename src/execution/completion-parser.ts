@@ -30,7 +30,8 @@ export function parseCompletionMarker(output: string): CompletionMarker | null {
         return parsed;
       }
     } catch {
-      return null;
+      searchIdx = lineEnd;
+      continue;
     }
     searchIdx = lineEnd;
   }
