@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ProviderHealthManager } from "../../src/providers/health-manager.js";
-import { rerouteOnDegradation } from "../../src/providers/router.js";
+import { rerouteOnDegradation, routeExecutionFallback } from "../../src/providers/router.js";
 import { Scheduler, type ScheduledTask } from "../../src/scheduler/scheduler.js";
 import type { ProviderId } from "../../src/core/types.js";
 
@@ -173,5 +173,21 @@ describe("provider storm resilience", () => {
 
     scheduler.complete(task!);
     expect(scheduler.bucketSnapshot().codex.available).toBe(1);
+  });
+
+  it("routes execution fallback from gemini to claude after tool-not-found failure", () => {
+    const health = new ProviderHealthManager({
+      buckets: { codex: 2, claude: 2, gemini: 2 },
+      baseBackoffSec: 5,
+      maxBackoffSec: 120,
+      recoverPerSuccess: 10
+    });
+
+    health.onFailure("gemini", "tool not found: rg");
+
+    const decision = routeExecutionFallback("gemini", health.snapshotAll(), "provider-specific execution failure signature");
+    expect(decision).not.toBeNull();
+    expect(decision!.provider).toBe("claude");
+    expect(decision!.fallbackProvider).toBe("gemini");
   });
 });
