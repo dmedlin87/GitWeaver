@@ -108,7 +108,7 @@ function quoteWindowsArg(value: string): string {
   if (value.length === 0) {
     return "\"\"";
   }
-  if (!/[ \t"]/u.test(value)) {
+  if (!/[ \t"&|<>^()]/u.test(value)) {
     return value;
   }
   return `"${value.replace(/"/g, "\\\"")}"`;
