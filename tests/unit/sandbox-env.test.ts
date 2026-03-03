@@ -1,8 +1,8 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { buildSandboxEnv, createSandboxHome } from "../../src/execution/sandbox-env.js";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { buildSandboxEnv, createSandboxHome, fileExists } from "../../src/execution/sandbox-env.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync, promises as fs } from "node:fs";
 
 describe("buildSandboxEnv", () => {
   it("filters unsafe variables", () => {
@@ -80,5 +80,21 @@ describe("createSandboxHome", () => {
     const sandboxPath = await createSandboxHome("run1", "task2", "codex");
     expect(existsSync(sandboxPath)).toBe(true);
     expect(existsSync(join(sandboxPath, ".codex"))).toBe(false);
+  });
+});
+
+describe("fileExists", () => {
+  it("returns true when fs.access succeeds", async () => {
+    vi.spyOn(fs, "access").mockResolvedValue(undefined);
+    const result = await fileExists("some/path");
+    expect(result).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("returns false when fs.access fails", async () => {
+    vi.spyOn(fs, "access").mockRejectedValue(new Error("File not found"));
+    const result = await fileExists("some/path");
+    expect(result).toBe(false);
+    vi.restoreAllMocks();
   });
 });
