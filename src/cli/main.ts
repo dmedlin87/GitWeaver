@@ -10,7 +10,8 @@ const program = new Command();
 program
   .name("orchestrator")
   .description("CLI-driven heterogeneous orchestrator")
-  .version("0.1.0");
+  .version("0.1.0")
+  .showHelpAfterError();
 
 registerRunCommand(program);
 registerResumeCommand(program);
