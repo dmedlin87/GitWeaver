@@ -64,6 +64,8 @@ describe("PtyManager", () => {
 
   it("filters sensitive environment variables from spawned pty", async () => {
     process.env.OPENAI_API_KEY = "sk-test-12345";
+    process.env.AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE";
+    process.env.AWS_SESSION_TOKEN = "session-token-value";
     process.env.SAFE_VAR = "safe-value";
 
     const ptyManager = new PtyManager();
@@ -81,6 +83,8 @@ describe("PtyManager", () => {
 
     expect(spawnedEnv.SAFE_VAR).toBe("safe-value");
     expect(spawnedEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnedEnv.AWS_ACCESS_KEY_ID).toBeUndefined();
+    expect(spawnedEnv.AWS_SESSION_TOKEN).toBeUndefined();
   });
 
   it("retains explicit environment variables from options", async () => {

@@ -1,18 +1,8 @@
 import type { SecureExecutor } from "./secure-executor.js";
+import { SENSITIVE_ENV_DENYLIST } from "./env-denylist.js";
 
 const ALLOWLIST = ["PATH", "SystemRoot", "ComSpec", "HOME", "USERPROFILE", "TMP", "TEMP", "CI", "NODE_ENV"];
-const DENYLIST = [
-  "OPENAI_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "GOOGLE_API_KEY",
-  "GEMINI_API_KEY",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "AWS_SESSION_TOKEN",
-  "GITHUB_TOKEN",
-  "GH_TOKEN",
-  "NPM_TOKEN"
-];
+const DENYLIST = SENSITIVE_ENV_DENYLIST;
 
 export class AdvisoryExecutor implements SecureExecutor {
   public prepareEnvironment(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

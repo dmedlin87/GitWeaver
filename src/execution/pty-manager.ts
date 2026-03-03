@@ -1,6 +1,7 @@
 import { redactSensitive } from "../observability/redaction.js";
 import { runCommand } from "../core/shell.js";
 import { killProcessTree } from "./watchdog.js";
+import { SENSITIVE_ENV_DENYLIST } from "../secure/env-denylist.js";
 
 export interface PtyRunOptions {
   cwd: string;
@@ -18,18 +19,7 @@ export interface PtyRunResult {
 
 type NodePtyModule = typeof import("node-pty");
 
-const DENYLIST = [
-  "OPENAI_API_KEY",
-  "ANTHROPIC_API_KEY",
-  "GOOGLE_API_KEY",
-  "GEMINI_API_KEY",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "AWS_SESSION_TOKEN",
-  "GITHUB_TOKEN",
-  "GH_TOKEN",
-  "NPM_TOKEN"
-];
+const DENYLIST = SENSITIVE_ENV_DENYLIST;
 
 export class PtyManager {
   private ptyModulePromise: Promise<NodePtyModule | null> | null = null;
