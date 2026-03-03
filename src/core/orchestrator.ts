@@ -14,7 +14,7 @@ import { generateDagWithCodex } from "../planning/planner-codex.js";
 import { condenseHistory } from "../planning/condenser-gemini.js";
 import { auditPlan } from "../planning/plan-audit.js";
 import { freezePlan } from "../planning/plan-freeze.js";
-import { rerouteOnDegradation, routeTask } from "../providers/router.js";
+import { rerouteOnDegradation, routeExecutionFallback, routeTask } from "../providers/router.js";
 import { Scheduler } from "../scheduler/scheduler.js";
 import { LockManager } from "../scheduler/lock-manager.js";
 import { LeaseHeartbeat } from "../scheduler/lease-heartbeat.js";
@@ -100,6 +100,12 @@ interface TaskRoutingDecision {
   routingReason: string;
   fallbackProvider?: ProviderId;
   fallbackReason?: string;
+}
+
+interface ProviderExecutionAttempt {
+  provider: ProviderId;
+  mode: "primary" | "fallback";
+  reason: string;
 }
 
 interface BaselineGateResult {
@@ -769,80 +775,77 @@ export class Orchestrator {
       }
 
       const prompt = this.composeExecutionPrompt(ctx.run.objective, task, envelope, contextPack, dependenciesState);
-      const sandboxHome = await createSandboxHome(ctx.run.runId, task.taskId, task.provider);
       const secureBaseEnv = ctx.secureExecutor.prepareEnvironment(process.env);
-      const env = buildSandboxEnv(secureBaseEnv, sandboxHome);
-      env.ORCH_TASK_NETWORK_POLICY = task.commandPolicy.network;
-
-      const adapter = getProviderAdapter(task.provider);
-      const providerStartedAt = Date.now();
-      const providerTimer = `provider.duration.${task.taskId}.${record.attempts}`;
-      this.metrics.startTimer(providerTimer, { taskId: task.taskId, provider: task.provider });
-      const heartbeatMs = 15_000;
-      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_START", {
-        taskId: task.taskId,
-        provider: task.provider,
-        attempt: record.attempts
-      });
-      this.progress(ctx, "provider_start", `Invoking ${task.provider} for ${task.taskId}`, {
-        taskId: task.taskId,
-        provider: task.provider,
-        attempt: record.attempts
-      });
-
-      const providerHeartbeat = setInterval(() => {
-        const elapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
-        ctx.events.append(ctx.run.runId, "TASK_PROVIDER_HEARTBEAT", {
-          taskId: task.taskId,
+      const executionPlan: ProviderExecutionAttempt[] = [
+        {
           provider: task.provider,
-          attempt: record.attempts,
-          elapsedSec
-        });
-        this.progress(ctx, "provider_heartbeat", `Still waiting on ${task.provider} for ${task.taskId}`, {
-          taskId: task.taskId,
-          provider: task.provider,
-          attempt: record.attempts,
-          elapsedSec
-        });
-      }, heartbeatMs);
+          mode: "primary",
+          reason: "task-assigned provider"
+        }
+      ];
 
-      let execution;
-      try {
-        execution = await adapter.execute({
-          prompt,
-          promptViaStdin: true,
-          cwd: worktree.path,
-          timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
-          env,
-          executionMode: ctx.config.executionMode,
-          containerRuntime: ctx.config.containerRuntime,
-          containerImage: ctx.config.containerImage,
-          containerMemoryMb: ctx.config.containerMemoryMb,
-          containerCpuLimit: ctx.config.containerCpuLimit,
-          containerRunAsUser: ctx.config.containerRunAsUser,
-          containerDropCapabilities: ctx.config.containerDropCapabilities,
-          containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
-          networkPolicy: "allow"
+      let execution: { exitCode: number; stdout: string; stderr: string; rawOutput?: string } | undefined;
+      let providerFailurePersisted = false;
+      let finalProvider = task.provider;
+      while (executionPlan.length > 0) {
+        const attemptProvider = executionPlan.shift()!;
+        finalProvider = attemptProvider.provider;
+        try {
+          execution = await this.runProviderAttempt(ctx, task, record, worktree.path, prompt, secureBaseEnv, attemptProvider);
+        } catch (error) {
+          execution = {
+            exitCode: 1,
+            stdout: "",
+            stderr: (error as Error).message
+          };
+        }
+
+        if (execution.exitCode === 0) {
+          await this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(finalProvider));
+          break;
+        }
+
+        const failureText = execution.stderr || execution.stdout || "provider execution failed";
+        await this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(finalProvider, failureText));
+        providerFailurePersisted = true;
+
+        if (!this.eligibleForExecutionFallback(failureText)) {
+          break;
+        }
+
+        const fallbackDecision = routeExecutionFallback(finalProvider, ctx.providerHealth.snapshotAll(), "provider-specific execution failure signature");
+        if (!fallbackDecision || fallbackDecision.provider === finalProvider) {
+          break;
+        }
+
+        await ctx.db.recordTaskRoutingDecision(
+          ctx.run.runId,
+          task.taskId,
+          record.attempts,
+          finalProvider,
+          fallbackDecision.provider,
+          fallbackDecision.fallbackReason ?? fallbackDecision.routingReason
+        );
+        ctx.events.append(ctx.run.runId, "TASK_EXECUTION_FALLBACK_ROUTED", {
+          taskId: task.taskId,
+          attempt: record.attempts,
+          fromProvider: finalProvider,
+          toProvider: fallbackDecision.provider,
+          reason: fallbackDecision.fallbackReason ?? fallbackDecision.routingReason
         });
-      } finally {
-        clearInterval(providerHeartbeat);
-        this.metrics.endTimer(providerTimer);
+        executionPlan.push({
+          provider: fallbackDecision.provider,
+          mode: "fallback",
+          reason: fallbackDecision.fallbackReason ?? fallbackDecision.routingReason
+        });
       }
 
-      const providerElapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
-      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_FINISH", {
-        taskId: task.taskId,
-        provider: task.provider,
-        attempt: record.attempts,
-        elapsedSec: providerElapsedSec,
-        exitCode: execution.exitCode
-      });
-      this.progress(ctx, "provider_finish", `${task.provider} finished ${task.taskId} with exit code ${execution.exitCode}`, {
-        taskId: task.taskId,
-        provider: task.provider,
-        attempt: record.attempts,
-        elapsedSec: providerElapsedSec
-      });
+      task.provider = finalProvider;
+      record.provider = finalProvider;
+
+      if (!execution) {
+        throw this.errorWithCode(`Task ${task.taskId} execution failed: no provider execution output`, REASON_CODES.EXEC_FAILED);
+      }
 
       if (ctx.config.forensicRawLogs && execution.rawOutput) {
         const forensicPath = this.persistForensicOutput(ctx, task.taskId, record.attempts, execution.rawOutput);
@@ -854,9 +857,10 @@ export class Orchestrator {
       }
 
       if (execution.exitCode !== 0) {
-        throw this.errorWithCode(`Task ${task.taskId} execution failed: ${execution.stderr || execution.stdout}`, REASON_CODES.EXEC_FAILED);
+        const err = this.errorWithCode(`Task ${task.taskId} execution failed: ${execution.stderr || execution.stdout}`, REASON_CODES.EXEC_FAILED);
+        (err as any).providerFailurePersisted = providerFailurePersisted;
+        throw err;
       }
-      await this.persistProviderHealth(ctx, ctx.providerHealth.onSuccess(task.provider));
 
       const marker = parseCompletionMarker(execution.stdout);
       if (marker) {
@@ -1043,7 +1047,8 @@ export class Orchestrator {
         throw error;
       }
 
-      if (reasonCode === REASON_CODES.EXEC_FAILED || reasonCode === REASON_CODES.AUTH_MISSING) {
+      const providerFailurePersisted = Boolean((error as any).providerFailurePersisted);
+      if ((reasonCode === REASON_CODES.EXEC_FAILED || reasonCode === REASON_CODES.AUTH_MISSING) && !providerFailurePersisted) {
         await this.persistProviderHealth(ctx, ctx.providerHealth.onFailure(task.provider, errorText));
       }
       this.progress(ctx, "task_error", `Task ${task.taskId} failed: ${errorText}`, {
@@ -1134,6 +1139,105 @@ export class Orchestrator {
       lockManager.releaseOwner(task.taskId);
       await ctx.db.removeLeasesByTask(ctx.run.runId, task.taskId);
       await worktreeManager.remove(ctx.run.repoPath, worktree.path).catch(() => undefined);
+    }
+  }
+
+  private eligibleForExecutionFallback(errorText: string): boolean {
+    const lower = errorText.toLowerCase();
+    return [
+      "tool not found",
+      "unknown option",
+      "unsupported option",
+      "unsupported tool",
+      "invalid argument",
+      "unrecognized arguments",
+      "no such file or directory",
+      "provider unavailable",
+      "service unavailable",
+      "temporarily unavailable",
+      "connection reset",
+      "econnreset",
+      "etimedout",
+      "deadline exceeded"
+    ].some((signature) => lower.includes(signature));
+  }
+
+  private async runProviderAttempt(
+    ctx: RuntimeContext,
+    task: TaskContract,
+    record: TaskRecord,
+    worktreePath: string,
+    prompt: string,
+    secureBaseEnv: NodeJS.ProcessEnv,
+    attempt: ProviderExecutionAttempt
+  ) {
+    const sandboxHome = await createSandboxHome(ctx.run.runId, task.taskId, attempt.provider);
+    const env = buildSandboxEnv(secureBaseEnv, sandboxHome);
+    env.ORCH_TASK_NETWORK_POLICY = task.commandPolicy.network;
+
+    const adapter = getProviderAdapter(attempt.provider);
+    const providerStartedAt = Date.now();
+    const providerTimer = `provider.duration.${task.taskId}.${record.attempts}.${attempt.provider}.${attempt.mode}`;
+    this.metrics.startTimer(providerTimer, { taskId: task.taskId, provider: attempt.provider, mode: attempt.mode });
+    const heartbeatMs = 15_000;
+    ctx.events.append(ctx.run.runId, "TASK_PROVIDER_START", {
+      taskId: task.taskId,
+      provider: attempt.provider,
+      attempt: record.attempts,
+      mode: attempt.mode,
+      reason: attempt.reason
+    });
+    this.progress(ctx, "provider_start", `Invoking ${attempt.provider} (${attempt.mode}) for ${task.taskId}`, {
+      taskId: task.taskId,
+      provider: attempt.provider,
+      attempt: record.attempts
+    });
+
+    const providerHeartbeat = setInterval(() => {
+      const elapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
+      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_HEARTBEAT", {
+        taskId: task.taskId,
+        provider: attempt.provider,
+        attempt: record.attempts,
+        elapsedSec,
+        mode: attempt.mode
+      });
+      this.progress(ctx, "provider_heartbeat", `Still waiting on ${attempt.provider} for ${task.taskId}`, {
+        taskId: task.taskId,
+        provider: attempt.provider,
+        attempt: record.attempts,
+        elapsedSec
+      });
+    }, heartbeatMs);
+
+    try {
+      return await adapter.execute({
+        prompt,
+        promptViaStdin: true,
+        cwd: worktreePath,
+        timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
+        env,
+        executionMode: ctx.config.executionMode,
+        containerRuntime: ctx.config.containerRuntime,
+        containerImage: ctx.config.containerImage,
+        containerMemoryMb: ctx.config.containerMemoryMb,
+        containerCpuLimit: ctx.config.containerCpuLimit,
+        containerRunAsUser: ctx.config.containerRunAsUser,
+        containerDropCapabilities: ctx.config.containerDropCapabilities,
+        containerReadOnlyRootfs: ctx.config.containerReadOnlyRootfs,
+        networkPolicy: "allow"
+      });
+    } finally {
+      clearInterval(providerHeartbeat);
+      this.metrics.endTimer(providerTimer);
+      const providerElapsedSec = Math.max(1, Math.floor((Date.now() - providerStartedAt) / 1000));
+      ctx.events.append(ctx.run.runId, "TASK_PROVIDER_FINISH", {
+        taskId: task.taskId,
+        provider: attempt.provider,
+        attempt: record.attempts,
+        elapsedSec: providerElapsedSec,
+        mode: attempt.mode
+      });
     }
   }
 

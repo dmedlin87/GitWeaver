@@ -106,6 +106,17 @@ CREATE TABLE IF NOT EXISTS repair_events (
   PRIMARY KEY (run_id, task_id, failure_class, attempt)
 );
 
+CREATE TABLE IF NOT EXISTS task_routing_events (
+  run_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  from_provider TEXT NOT NULL,
+  to_provider TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, task_id, attempt, from_provider, to_provider)
+);
+
 CREATE TABLE IF NOT EXISTS project_axioms (
   run_id TEXT NOT NULL,
   axiom_id TEXT PRIMARY KEY,
