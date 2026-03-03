@@ -40,7 +40,7 @@ const PLANNER_SCHEMA = {
             type: "object",
             additionalProperties: false,
             properties: {
-              allow: { type: "array", items: { type: "string" } },
+              allow: { type: "array", items: { type: "string" }, minItems: 1 },
               deny: { type: "array", items: { type: "string" } },
               ownership: { type: "string", enum: ["exclusive", "shared-serial", "shared-append"] },
               sharedKey: { type: ["string", "null"] }
@@ -146,7 +146,7 @@ function plannerPrompt(
     "Rules:",
     "- Return JSON only. No markdown, no explanation, no code fences.",
     "- Use TaskContract fields exactly.",
-    "- Include write scopes and command policy for each task.",
+    "- Include write scopes and command policy for each task. writeScope.allow must list at least one glob pattern.",
     "- Keep dependencies explicit and acyclic.",
     `Objective: ${objective}`
   ];
