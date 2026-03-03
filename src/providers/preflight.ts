@@ -121,7 +121,7 @@ async function checkAuth(provider: ProviderId): Promise<AuthCheckResult> {
     }
     return { status: "OK" };
   } catch (err) {
-    return { status: "UNKNOWN", detail: `Command execution failed: ${(err as Error).message}` };
+    return { status: "UNKNOWN", detail: (err as Error).message };
   }
 }
 
@@ -143,7 +143,7 @@ async function checkGeminiAuth(): Promise<AuthCheckResult> {
       ? { status: "OK" }
       : { status: "UNKNOWN", detail: `Exit code ${result.code}: ${result.stderr.trim()}` };
   } catch (err) {
-    return { status: "UNKNOWN", detail: `Command execution failed: ${(err as Error).message}` };
+    return { status: "UNKNOWN", detail: (err as Error).message };
   }
 }
 

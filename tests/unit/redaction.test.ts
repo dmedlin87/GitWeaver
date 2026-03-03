@@ -19,6 +19,14 @@ describe("redactSensitive", () => {
     expect(output).toBe("Key1: [REDACTED], Key2: [REDACTED]");
   });
 
+  it("redacts Anthropic-style keys", () => {
+    const input = "export ANTHROPIC_API_KEY=sk-ant-api03-abcdef1234567890abcdef1234567890-test_abc";
+    const output = redactSensitive(input);
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk-ant-api03-abcdef1234567890abcdef1234567890-test_abc");
+    expect(output).toBe("export ANTHROPIC_API_KEY=[REDACTED]");
+  });
+
   it("redacts AWS access keys", () => {
     const input = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE";
     const output = redactSensitive(input);
