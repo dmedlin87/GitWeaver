@@ -13,6 +13,19 @@ describe("failure classifier", () => {
     expect(isNonRepairableExecutionFailure("missing auth", REASON_CODES.AUTH_MISSING)).toBe(true);
   });
 
+  it("does not treat cached credentials text as non-repairable auth failure", () => {
+    const text = "Loaded cached credentials.";
+    expect(isNonRepairableExecutionFailure(text, REASON_CODES.EXEC_FAILED)).toBe(false);
+    expect(classifyFailure(text, REASON_CODES.EXEC_FAILED)).toBe("VERIFY_FAIL_COMPILE");
+  });
+
+  it("flags strict auth-missing signatures as non-repairable", () => {
+    expect(isNonRepairableExecutionFailure("No active credentials found", REASON_CODES.EXEC_FAILED)).toBe(true);
+    expect(isNonRepairableExecutionFailure("Authentication required to continue", REASON_CODES.EXEC_FAILED)).toBe(true);
+    expect(isNonRepairableExecutionFailure("Login required for this command", REASON_CODES.EXEC_FAILED)).toBe(true);
+    expect(isNonRepairableExecutionFailure("You are not logged in", REASON_CODES.EXEC_FAILED)).toBe(true);
+  });
+
   it("flags prompt drift as non-repairable", () => {
     expect(isNonRepairableExecutionFailure("prompt drift", REASON_CODES.PROMPT_DRIFT)).toBe(true);
     expect(classifyFailure("prompt drift", REASON_CODES.PROMPT_DRIFT)).toBe("NON_REPAIRABLE_EXEC");

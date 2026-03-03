@@ -12,16 +12,23 @@ export type FailureClass =
 const NON_REPAIRABLE_EXEC_PATTERNS = [
   "unknown arguments",
   "usage:",
-  "authentication required",
-  "not logged",
-  "sign in",
-  "login",
-  "credentials",
-  "api key",
   "approval mode is only available",
   "not recognized as an internal or external command",
   "command not found",
   "enoent"
+];
+
+const NON_REPAIRABLE_AUTH_PATTERNS = [
+  /\bno active credentials\b/,
+  /\bauthentication required\b/,
+  /\blogin required\b/,
+  /\bnot logged in\b/
+];
+
+const NON_REPAIRABLE_AUTH_CONTEXT_PATTERNS = [
+  "api key",
+  "sign in",
+  "log in"
 ];
 
 export function isNonRepairableExecutionFailure(text: string, reasonCode?: string): boolean {
@@ -34,7 +41,15 @@ export function isNonRepairableExecutionFailure(text: string, reasonCode?: strin
   }
 
   const source = `${reasonCode ?? ""}\n${text}`.toLowerCase();
-  return NON_REPAIRABLE_EXEC_PATTERNS.some((pattern) => source.includes(pattern));
+  if (NON_REPAIRABLE_EXEC_PATTERNS.some((pattern) => source.includes(pattern))) {
+    return true;
+  }
+
+  if (NON_REPAIRABLE_AUTH_PATTERNS.some((pattern) => pattern.test(source))) {
+    return true;
+  }
+
+  return NON_REPAIRABLE_AUTH_CONTEXT_PATTERNS.some((pattern) => source.includes(pattern));
 }
 
 export function classifyFailure(text: string, reasonCode?: string): FailureClass {
