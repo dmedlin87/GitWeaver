@@ -54,7 +54,7 @@ export class EventLog {
         try {
           events.push(JSON.parse(line) as EventRecord);
         } catch {
-          break;
+          continue;
         }
       }
     }
