@@ -214,14 +214,14 @@ describe("CodexAdapter – container mode", () => {
     expect(opts.network).toBe("deny");
   });
 
-  it("defaults networkPolicy to allow when not specified", async () => {
+  it("defaults networkPolicy to deny when not specified", async () => {
     runInContainerMock.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
     const adapter = new CodexAdapter();
     await adapter.execute({ ...BASE_REQUEST, executionMode: "container" });
 
     const opts = runInContainerMock.mock.calls[0]![0] as { network: string };
-    expect(opts.network).toBe("allow");
+    expect(opts.network).toBe("deny");
   });
 
   it("maps stdout/stderr/rawOutput from container result", async () => {

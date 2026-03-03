@@ -41,7 +41,7 @@ export class CodexAdapter implements ProviderAdapter {
         command: "codex",
         args,
         timeoutMs: request.timeoutMs,
-        network: request.networkPolicy ?? "allow",
+        network: request.networkPolicy ?? "deny",
         ...(request.containerMemoryMb !== undefined ? { memoryMb: request.containerMemoryMb } : {}),
         ...(request.containerCpuLimit !== undefined ? { cpuLimit: request.containerCpuLimit } : {}),
         ...(request.containerRunAsUser !== undefined ? { user: request.containerRunAsUser } : {}),

@@ -61,10 +61,13 @@ async function checkSingleProvider(provider: ProviderId): Promise<ProviderStatus
   if (authResult.status === "MISSING") {
     issues.push(`Authentication required. Run: ${spec.authFixCommand}`);
     if (authResult.detail) {
-      issues.push(`Command execution failed: ${authResult.detail}`);
+      const prefix = authResult.detail.startsWith("Command execution failed:") ? "" : "Command execution failed: ";
+      issues.push(`${prefix}${authResult.detail}`);
     }
   } else if (authResult.status === "UNKNOWN") {
-    issues.push(`Command execution failed: ${authResult.detail ?? "check timed out or failed"}`);
+    const detailMsg = authResult.detail ?? "check timed out or failed";
+    const prefix = detailMsg.startsWith("Command execution failed:") ? "" : "Command execution failed: ";
+    issues.push(`${prefix}${detailMsg}`);
   }
 
   if (provider === "codex" && process.platform === "win32") {
