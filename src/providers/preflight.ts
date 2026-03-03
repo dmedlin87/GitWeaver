@@ -129,7 +129,7 @@ async function checkGeminiAuth(): Promise<AuthCheckResult> {
   try {
     const result = await runCommand(
       "gemini",
-      ["--prompt", "Reply with OK.", "--output-format", "json", "--approval-mode", "plan"],
+      ["--prompt", "Reply with OK.", "--output-format", "json", "--approval-mode", "default"],
       { timeoutMs: 20_000 }
     );
     const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
