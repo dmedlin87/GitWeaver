@@ -352,6 +352,54 @@ export class OrchestratorDb {
     });
   }
 
+  public async recordTaskRoutingDecision(
+    runId: string,
+    taskId: string,
+    attempt: number,
+    fromProvider: string,
+    toProvider: string,
+    reason: string
+  ): Promise<void> {
+    await this.withBusyRetry("recordTaskRoutingDecision", () => {
+      this.db
+        .prepare(
+          `INSERT OR REPLACE INTO task_routing_events(run_id, task_id, attempt, from_provider, to_provider, reason, created_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(runId, taskId, attempt, fromProvider, toProvider, reason, new Date().toISOString());
+    });
+  }
+
+  public async listTaskRoutingEvents(
+    runId: string,
+    taskId: string
+  ): Promise<Array<{ attempt: number; fromProvider: string; toProvider: string; reason: string; createdAt: string }>> {
+    return this.withBusyRetry("listTaskRoutingEvents", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT attempt, from_provider, to_provider, reason, created_at
+           FROM task_routing_events
+           WHERE run_id = ? AND task_id = ?
+           ORDER BY created_at ASC`
+        )
+        .all(runId, taskId) as Array<{
+        attempt: number;
+        from_provider: string;
+        to_provider: string;
+        reason: string;
+        created_at: string;
+      }>;
+
+      return rows.map((row) => ({
+        attempt: row.attempt,
+        fromProvider: row.from_provider,
+        toProvider: row.to_provider,
+        reason: row.reason,
+        createdAt: row.created_at
+      }));
+    });
+  }
+
   public async upsertProviderHealth(runId: string, snapshot: ProviderHealthSnapshot): Promise<void> {
     await this.withBusyRetry("upsertProviderHealth", () => {
       this.db

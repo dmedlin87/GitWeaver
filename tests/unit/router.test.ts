@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rerouteOnDegradation, routeTask } from "../../src/providers/router.js";
+import { rerouteOnDegradation, routeExecutionFallback, routeTask } from "../../src/providers/router.js";
 
 describe("routeTask", () => {
   it("routes code tasks to claude by default", () => {
@@ -156,5 +156,25 @@ describe("rerouteOnDegradation", () => {
       {}
     );
     expect(result).toBeNull();
+  });
+});
+
+describe("routeExecutionFallback", () => {
+  it("returns claude as first fallback when gemini fails", () => {
+    const decision = routeExecutionFallback("gemini", {
+      claude: { provider: "claude", score: 90, lastErrors: [], tokenBucket: 1 },
+      codex: { provider: "codex", score: 85, lastErrors: [], tokenBucket: 1 }
+    }, "tool not found");
+    expect(decision).not.toBeNull();
+    expect(decision!.provider).toBe("claude");
+    expect(decision!.fallbackProvider).toBe("gemini");
+  });
+
+  it("returns null when no healthy fallback exists", () => {
+    const decision = routeExecutionFallback("gemini", {
+      claude: { provider: "claude", score: 20, lastErrors: ["429"], tokenBucket: 0 },
+      codex: { provider: "codex", score: 10, lastErrors: ["429"], tokenBucket: 0 }
+    }, "tool not found");
+    expect(decision).toBeNull();
   });
 });

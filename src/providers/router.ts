@@ -108,3 +108,22 @@ export function routeTask(
     fallbackReason: "No healthy fallback provider available",
   };
 }
+
+export function routeExecutionFallback(
+  failedProvider: ProviderId,
+  healthByProvider: Partial<Record<ProviderId, ProviderHealthSnapshot>>,
+  reason: string,
+): RoutingDecision | null {
+  for (const candidate of FALLBACK_ORDER[failedProvider]) {
+    if (providerHealthy(healthByProvider[candidate])) {
+      return {
+        provider: candidate,
+        fallbackProvider: failedProvider,
+        routingReason: "execution fallback after provider-specific failure",
+        fallbackReason: reason
+      };
+    }
+  }
+
+  return null;
+}
