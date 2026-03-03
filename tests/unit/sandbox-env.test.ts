@@ -81,6 +81,22 @@ describe("createSandboxHome", () => {
     expect(existsSync(sandboxPath)).toBe(true);
     expect(existsSync(join(sandboxPath, ".codex"))).toBe(false);
   });
+
+  it("preserves relative config paths under sandbox home", async () => {
+    const nestedGeminiConfigDir = join(tempHome, ".config", "gemini");
+    mkdirSync(nestedGeminiConfigDir, { recursive: true });
+    writeFileSync(join(nestedGeminiConfigDir, "settings.json"), "{\"theme\":\"dark\"}");
+
+    const sandboxPath = await createSandboxHome("run1", "task3", "gemini");
+    const nestedTarget = join(sandboxPath, ".config", "gemini", "settings.json");
+    const flattenedTarget = join(sandboxPath, "gemini", "settings.json");
+
+    expect(existsSync(nestedTarget)).toBe(true);
+    expect(readFileSync(nestedTarget, "utf-8")).toBe('{"theme":"dark"}');
+    expect(existsSync(flattenedTarget)).toBe(false);
+
+    rmSync(sandboxPath, { recursive: true, force: true });
+  });
 });
 
 describe("fileExists", () => {
