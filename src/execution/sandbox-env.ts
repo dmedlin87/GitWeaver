@@ -14,7 +14,7 @@ function providerConfigPaths(provider: ProviderId): string[] {
   return paths.map(p => join(home, p));
 }
 
-async function fileExists(path: string): Promise<boolean> {
+export async function fileExists(path: string): Promise<boolean> {
   try {
     await fs.access(path);
     return true;
