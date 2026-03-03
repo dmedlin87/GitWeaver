@@ -1,17 +1,11 @@
 import { promises as fs } from "node:fs";
-import { basename, join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderId } from "../core/types.js";
 import { PROVIDER_SPECS } from "../providers/registry.js";
 
 function providerConfigPaths(provider: ProviderId): string[] {
-  const home = process.env.USERPROFILE || process.env.HOME || "";
-  if (!home) {
-    return [];
-  }
-
-  const paths = PROVIDER_SPECS[provider]?.configPaths || [];
-  return paths.map(p => join(home, p));
+  return PROVIDER_SPECS[provider]?.configPaths || [];
 }
 
 export async function fileExists(path: string): Promise<boolean> {
@@ -24,17 +18,25 @@ export async function fileExists(path: string): Promise<boolean> {
 }
 
 export async function createSandboxHome(runId: string, taskId: string, provider: ProviderId): Promise<string> {
-  const home = join(tmpdir(), "orc-home", runId, taskId);
-  await fs.mkdir(home, { recursive: true });
+  const sandboxHome = join(tmpdir(), "orc-home", runId, taskId);
+  await fs.mkdir(sandboxHome, { recursive: true });
+
+  const realHome = process.env.USERPROFILE || process.env.HOME || "";
+  if (!realHome) {
+    return sandboxHome;
+  }
 
   const tasks: Promise<void>[] = [];
-  for (const source of providerConfigPaths(provider)) {
+  for (const relativePath of providerConfigPaths(provider)) {
     tasks.push(
       (async () => {
+        const source = join(realHome, relativePath);
         if (!(await fileExists(source))) {
           return;
         }
-        const target = join(home, basename(source));
+
+        const target = join(sandboxHome, relativePath);
+        await fs.mkdir(dirname(target), { recursive: true });
         await fs.cp(source, target, { recursive: true, errorOnExist: false, force: true });
       })()
     );
@@ -42,7 +44,7 @@ export async function createSandboxHome(runId: string, taskId: string, provider:
 
   await Promise.all(tasks);
 
-  return home;
+  return sandboxHome;
 }
 
 const SAFE_ENV_VARS = ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM", "COLORTERM"];
