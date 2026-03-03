@@ -810,6 +810,7 @@ export class Orchestrator {
       try {
         execution = await adapter.execute({
           prompt,
+          promptViaStdin: true,
           cwd: worktree.path,
           timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
           env,
