@@ -45,25 +45,25 @@ export async function condenseHistory(
       executionMode: "host"
     });
   } catch (err) {
-    process.stdout.write(`Condenser skipped (provider error): ${(err as Error).message}\n`);
+    process.stderr.write(`Condenser skipped (provider error): ${(err as Error).message}\n`);
     return previousNarrative ?? "";
   }
 
   if (result.exitCode !== 0) {
-    process.stdout.write(`Condenser skipped (exit ${result.exitCode}): ${(result.stderr || result.stdout).slice(0, 200)}\n`);
+    process.stderr.write(`Condenser skipped (exit ${result.exitCode}): ${(result.stderr || result.stdout).slice(0, 200)}\n`);
     return previousNarrative ?? "";
   }
 
   const narrative = result.stdout.trim();
 
   if (narrative.length === 0) {
-    process.stdout.write("Condenser returned empty output; retaining previous narrative.\n");
+    process.stderr.write("Condenser returned empty output; retaining previous narrative.\n");
     return previousNarrative ?? "";
   }
 
   if (narrative.length > MAX_NARRATIVE_CHARS) {
     // Truncate rather than discard — a long narrative is still better than nothing.
-    process.stdout.write(`Condenser output truncated from ${narrative.length} to ${MAX_NARRATIVE_CHARS} chars.\n`);
+    process.stderr.write(`Condenser output truncated from ${narrative.length} to ${MAX_NARRATIVE_CHARS} chars.\n`);
     return narrative.slice(0, MAX_NARRATIVE_CHARS);
   }
 

@@ -307,7 +307,7 @@ export async function generateDagWithCodex(
   for (let attempt = 1; attempt <= providers.length; attempt += 1) {
     const provider = providers[attempt - 1]!;
     const adapter = getProviderAdapter(provider);
-    process.stdout.write(`Planning attempt ${attempt}/${providers.length} with ${provider}...\n`);
+    process.stderr.write(`Planning attempt ${attempt}/${providers.length} with ${provider}...\n`);
 
     let result: Awaited<ReturnType<typeof adapter.execute>>;
     try {
@@ -321,7 +321,7 @@ export async function generateDagWithCodex(
       });
     } catch (execError) {
       const msg = (execError as Error).message ?? String(execError);
-      process.stdout.write(`Attempt ${attempt} threw: ${msg}\n`);
+      process.stderr.write(`Attempt ${attempt} threw: ${msg}\n`);
       lastError = execError as Error;
       lastReasonCode = REASON_CODES.PLAN_PROVIDER_FAILED;
       continue;
@@ -331,8 +331,8 @@ export async function generateDagWithCodex(
 
     if (result.exitCode !== 0) {
       const detail = (result.stderr || result.stdout).slice(0, 500);
-      process.stdout.write(`Attempt ${attempt} failed with exit code ${result.exitCode}.\n`);
-      process.stdout.write(`Provider output: ${detail}\n`);
+      process.stderr.write(`Attempt ${attempt} failed with exit code ${result.exitCode}.\n`);
+      process.stderr.write(`Provider output: ${detail}\n`);
       lastError = new Error(`Planner provider ${provider} failed (attempt ${attempt}): ${result.stderr || result.stdout}`);
       lastReasonCode = REASON_CODES.PLAN_PROVIDER_FAILED;
       continue;
@@ -341,10 +341,10 @@ export async function generateDagWithCodex(
     try {
       const parsed = extractJsonPayload(raw);
       const dag = validateDag(parsed);
-      process.stdout.write(`Plan generated successfully on attempt ${attempt} with ${provider}.\n`);
+      process.stderr.write(`Plan generated successfully on attempt ${attempt} with ${provider}.\n`);
       return { dag, rawResponse: raw, retries: attempt - 1, plannerProvider: provider };
     } catch (error) {
-      process.stdout.write(`Attempt ${attempt} failed schema validation: ${(error as Error).message}\n`);
+      process.stderr.write(`Attempt ${attempt} failed schema validation: ${(error as Error).message}\n`);
       lastError = error as Error;
       lastReasonCode = REASON_CODES.PLAN_SCHEMA_INVALID;
     }
