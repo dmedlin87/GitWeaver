@@ -27,6 +27,7 @@ export function runCommand(command: string, args: string[], options: ExecOptions
     let stderr = "";
     let timeout: NodeJS.Timeout | undefined;
     let forceKill: NodeJS.Timeout | undefined;
+    let forceResolve: NodeJS.Timeout | undefined;
     let timedOut = false;
 
     if (options.timeoutMs && options.timeoutMs > 0) {
@@ -39,6 +40,17 @@ export function runCommand(command: string, args: string[], options: ExecOptions
           } catch {
             // process already terminated
           }
+          // On Windows, grandchild processes (e.g. gemini.exe spawned by cmd.exe) inherit
+          // pipe handles and keep stdout/stderr open after cmd.exe is killed, preventing
+          // the 'close' event from ever firing. Resolve after a brief grace period so
+          // the orchestrator heartbeat interval is not left running indefinitely.
+          forceResolve = setTimeout(() => {
+            resolve({
+              code: 124,
+              stdout,
+              stderr: `${stderr}\nCommand timed out after ${options.timeoutMs}ms`.trim()
+            });
+          }, 2_000);
         }, 5_000);
       }, options.timeoutMs);
     }
@@ -58,6 +70,9 @@ export function runCommand(command: string, args: string[], options: ExecOptions
       if (forceKill) {
         clearTimeout(forceKill);
       }
+      if (forceResolve) {
+        clearTimeout(forceResolve);
+      }
       reject(error);
     });
 
@@ -67,6 +82,9 @@ export function runCommand(command: string, args: string[], options: ExecOptions
       }
       if (forceKill) {
         clearTimeout(forceKill);
+      }
+      if (forceResolve) {
+        clearTimeout(forceResolve);
       }
       if (timedOut) {
         stderr = `${stderr}\nCommand timed out after ${options.timeoutMs}ms`.trim();

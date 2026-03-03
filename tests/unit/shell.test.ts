@@ -131,9 +131,31 @@ describe('shell', () => {
       vi.advanceTimersByTime(5000);
       expect(child.kill).toHaveBeenCalledWith('SIGKILL');
 
+      // close fires before the forceResolve grace period (2000ms); it cancels forceResolve
       child.emit('close', null);
       const result = await promise;
       expect(result.code).toBe(124);
+    });
+
+    it('force-resolves after SIGKILL if close event never fires (Windows pipe inheritance)', async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child);
+
+      const promise = runCommand('sleep', ['10'], { timeoutMs: 1000 });
+
+      vi.advanceTimersByTime(1000);
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+
+      vi.advanceTimersByTime(5000);
+      expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+
+      // close never fires (grandchild holds pipe open on Windows); forceResolve fires after 2000ms
+      vi.advanceTimersByTime(2000);
+
+      const result = await promise;
+      expect(result.code).toBe(124);
+      expect(result.stderr).toContain('Command timed out after 1000ms');
     });
 
     it('handles process exit without timeout with null code', async () => {

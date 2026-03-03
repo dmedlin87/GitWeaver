@@ -142,28 +142,46 @@ function plannerPrompt(
   includeSchema = false
 ): string {
   const lines = [
-    "Generate a strict JSON DAG for a heterogeneous coding orchestrator.",
-    "Rules:",
-    "- Return JSON only. No markdown, no explanation, no code fences.",
-    "- Use TaskContract fields exactly.",
-    "- Include write scopes and command policy for each task. writeScope.allow must list at least one glob pattern.",
-    "- Keep dependencies explicit and acyclic.",
-    `Objective: ${objective}`
+    "You are the Planner Agent for GitWeaver Orchestrator.",
+    "Produce an execution-ready DAG that passes strict schema validation without human cleanup.",
+    "",
+    "NON-NEGOTIABLE OUTPUT CONTRACT:",
+    "- Return exactly one JSON object with top-level keys: nodes, edges.",
+    "- Return JSON only. No markdown, no explanation, no code fences, no surrounding prose.",
+    "- Every node must include all required TaskContract fields.",
+    "- writeScope.allow must contain explicit repo-relative paths or globs and must never be empty.",
+    "- Never use full-repo wildcards as the only scope (for example: '*', '**', './', '.').",
+    "- Keep dependencies explicit, acyclic, and consistent with edges.",
+    "",
+    "PLANNING QUALITY BAR:",
+    "- Decompose objective into the smallest safe set of independently verifiable tasks.",
+    "- Prefer 2-6 tasks unless objective complexity requires more.",
+    "- Assign tight write scopes; each task should only touch files it must change.",
+    "- Keep commandPolicy.allow minimal and task-specific.",
+    "- Default commandPolicy.network to 'deny' unless network is truly required.",
+    "- Fill expected.files/expected.exports/expected.tests with concrete assertions when knowable; otherwise use null.",
+    "- Fill artifactIO.consumes/produces only when a task truly depends on generated artifacts; otherwise use null.",
+    "",
+    "PROVIDER ASSIGNMENT GUIDANCE:",
+    "- Use codex for repair-heavy or architecture-sensitive tasks.",
+    "- Use claude for most implementation, refactor, test, docs, and dependency tasks.",
+    "- Use gemini when broad synthesis across many files is a strong requirement.",
+    "",
+    `OBJECTIVE: ${objective}`
   ];
   if (includeSchema) {
     lines.push(
-      "\nOutput must conform exactly to this JSON Schema (do not add extra fields):",
-      "```json",
-      JSON.stringify(PLANNER_SCHEMA, null, 2),
-      "```"
+      "",
+      "AUTHORITATIVE JSON SCHEMA (do not add extra fields):",
+      JSON.stringify(PLANNER_SCHEMA, null, 2)
     );
   }
   if (repoContext) {
-    lines.push("\nRepository Context:");
+    lines.push("", "REPOSITORY CONTEXT:");
     lines.push(repoContext);
   }
   if (pendingTasks && pendingTasks.length > 0) {
-    lines.push("\nPreviously Planned & Pending Tasks (to be reviewed/dropped/modified):");
+    lines.push("", "PREVIOUSLY PLANNED & PENDING TASKS (review, keep, modify, or drop):");
     lines.push(JSON.stringify(pendingTasks, null, 2));
   }
   return lines.join("\n");
