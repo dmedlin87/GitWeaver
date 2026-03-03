@@ -51,4 +51,4 @@ Write-Host "  [snake] working: $PSScriptRoot\.." -ForegroundColor DarkGray
 Write-Host ""
 
 Set-Location (Join-Path $PSScriptRoot "..")
-pnpm dev run $Prompt
+pnpm dev run $Prompt --dev-mode
