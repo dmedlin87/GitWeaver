@@ -19,6 +19,7 @@ describe("loadConfig", () => {
   it("returns defaults when config path is not provided", () => {
     const loaded = loadConfig(undefined);
     expect(loaded).toBe(DEFAULT_CONFIG);
+    expect(loaded.providerExecutionTimeoutSec).toBe(600);
   });
 
   it("deep merges nested objects while preserving unspecified defaults", () => {
@@ -35,7 +36,8 @@ describe("loadConfig", () => {
         smokeGateByType: {
           docs: "pnpm -s lint"
         },
-        defaultNetworkPolicy: "allow"
+        defaultNetworkPolicy: "allow",
+        providerExecutionTimeoutSec: 450
       }),
       "utf8"
     );
@@ -51,6 +53,7 @@ describe("loadConfig", () => {
       docs: "pnpm -s lint"
     });
     expect(loaded.defaultNetworkPolicy).toBe("allow");
+    expect(loaded.providerExecutionTimeoutSec).toBe(450);
   });
 
   it("throws when config file does not exist", () => {

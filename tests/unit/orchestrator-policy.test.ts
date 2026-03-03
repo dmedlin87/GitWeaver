@@ -26,6 +26,7 @@ let mockAdapterExecution: {
   stderr: "",
 };
 const tempDirs: string[] = [];
+const mockAdapterExecute = vi.fn(async () => mockAdapterExecution);
 
 vi.mock("../../src/scheduler/lock-manager.js", () => ({
   LockManager: class {
@@ -71,7 +72,7 @@ vi.mock("../../src/execution/worktree-manager.js", () => ({
 
 vi.mock("../../src/providers/adapters/index.js", () => ({
   getProviderAdapter: () => ({
-    execute: async () => mockAdapterExecution,
+    execute: mockAdapterExecute,
   }),
 }));
 
@@ -136,6 +137,7 @@ describe("Orchestrator Policy Enforcement", () => {
       stdout: "",
       stderr: "",
     };
+    mockAdapterExecute.mockClear();
     orchestrator = new Orchestrator();
     ctx = {
       run: {
@@ -155,6 +157,7 @@ describe("Orchestrator Policy Enforcement", () => {
         lockContentionRetryMax: 1,
         lockContentionBackoffMs: 1,
         heartbeatTimeoutSec: 60,
+        providerExecutionTimeoutSec: 600,
         maxRepairAttemptsPerClass: 0,
       },
       db: {
@@ -586,4 +589,49 @@ describe("Orchestrator Policy Enforcement", () => {
     expect(existsSync(payload.path)).toBe(true);
     expect(readFileSync(payload.path, "utf8")).toContain("provider raw output");
   });
+  it("uses providerExecutionTimeoutSec for adapter timeout instead of heartbeatTimeoutSec", async () => {
+    ctx.config.heartbeatTimeoutSec = 5;
+    ctx.config.providerExecutionTimeoutSec = 123;
+
+    const task = {
+      taskId: "task-provider-timeout",
+      provider: "claude",
+      type: "code",
+      dependencies: [],
+      writeScope: { allow: ["src/test.ts"], deny: [] },
+      commandPolicy: {
+        allow: ["pnpm test"],
+        deny: [],
+        network: "deny",
+      },
+      verify: {
+        gateCommand: "pnpm test",
+        outputVerificationRequired: false,
+      },
+      artifactIO: {},
+      expected: {},
+      contractHash: "hash",
+    };
+
+    const record = { attempts: 0, state: "PENDING" };
+
+    await orchestrator.executeTask(
+      ctx,
+      task,
+      record,
+      new LockManager(1000),
+      new LeaseHeartbeat(new LockManager(1000), 1000),
+      new MergeQueue(),
+      new WorktreeManager(),
+      { increment: () => 1, allowed: () => true },
+      new Map(),
+      new Map(),
+      new Map(),
+    );
+
+    expect(mockAdapterExecute).toHaveBeenCalledTimes(1);
+    const call = mockAdapterExecute.mock.calls[0];
+    expect(call?.[0]?.timeoutMs).toBe(123_000);
+  });
+
 });
