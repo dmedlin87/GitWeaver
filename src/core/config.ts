@@ -27,6 +27,7 @@ export interface RuntimeConfig {
   lockContentionRetryMax: number;
   lockContentionBackoffMs: number;
   heartbeatTimeoutSec: number;
+  providerExecutionTimeoutSec: number;
   terminateGraceSec: number;
   maxRepairAttemptsPerClass: number;
   defaultCommandDeny: string[];
@@ -64,6 +65,7 @@ export const DEFAULT_CONFIG: RuntimeConfig = {
   lockContentionRetryMax: 4,
   lockContentionBackoffMs: 75,
   heartbeatTimeoutSec: 60,
+  providerExecutionTimeoutSec: 600,
   terminateGraceSec: 10,
   maxRepairAttemptsPerClass: 2,
   defaultCommandDeny: ["npm install", "pnpm install", "yarn install", "git push", "curl", "wget", "rm -rf"],

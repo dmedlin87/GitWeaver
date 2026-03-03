@@ -812,7 +812,7 @@ export class Orchestrator {
           prompt,
           promptViaStdin: true,
           cwd: worktree.path,
-          timeoutMs: ctx.config.heartbeatTimeoutSec * 1000,
+          timeoutMs: ctx.config.providerExecutionTimeoutSec * 1000,
           env,
           executionMode: ctx.config.executionMode,
           containerRuntime: ctx.config.containerRuntime,

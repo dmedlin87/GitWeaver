@@ -29,6 +29,14 @@ let mockAdapterExecution: {
 
 /** Set > 0 to make the adapter delay that many ms (fake-timer controlled). */
 let adapterHangMs = 0;
+const mockAdapterExecute = vi.fn(async () => {
+  if (adapterHangMs > 0) {
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, adapterHangMs),
+    );
+  }
+  return mockAdapterExecution;
+});
 
 const tempDirs: string[] = [];
 
@@ -77,14 +85,7 @@ vi.mock("../../src/execution/worktree-manager.js", () => ({
 
 vi.mock("../../src/providers/adapters/index.js", () => ({
   getProviderAdapter: () => ({
-    execute: async () => {
-      if (adapterHangMs > 0) {
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, adapterHangMs),
-        );
-      }
-      return mockAdapterExecution;
-    },
+    execute: mockAdapterExecute,
   }),
 }));
 
@@ -190,6 +191,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
   beforeEach(() => {
     adapterHangMs = 0;
     mockAdapterExecution = { exitCode: 0, stdout: "", stderr: "" };
+    mockAdapterExecute.mockClear();
 
     orchestrator = new Orchestrator();
     ctx = {
@@ -206,6 +208,7 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
         lockContentionRetryMax: 1,
         lockContentionBackoffMs: 1,
         heartbeatTimeoutSec: 60,
+        providerExecutionTimeoutSec: 600,
         maxRepairAttemptsPerClass: 0,
       },
       db: {
@@ -323,6 +326,20 @@ describe("watchdog-hang recovery + forensic raw-log policy", () => {
   });
 
   // ── Orchestrator heartbeat emission during stall ───────────────────────────
+
+  it("uses providerExecutionTimeoutSec for adapter timeout independently of heartbeatTimeoutSec", async () => {
+    ctx.config.heartbeatTimeoutSec = 7;
+    ctx.config.providerExecutionTimeoutSec = 111;
+
+    const task = makeTask("task-provider-timeout-independent");
+    const record = { attempts: 0, state: "PENDING" };
+
+    await callExecuteTask(orchestrator, ctx, task, record);
+
+    expect(mockAdapterExecute).toHaveBeenCalledTimes(1);
+    const call = mockAdapterExecute.mock.calls[0];
+    expect(call?.[0]?.timeoutMs).toBe(111_000);
+  });
 
   it("emits TASK_PROVIDER_HEARTBEAT events during an extended provider stall", async () => {
     vi.useFakeTimers();
