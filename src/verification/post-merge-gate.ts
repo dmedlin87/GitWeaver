@@ -1,5 +1,6 @@
 import { runShellLine } from "../core/shell.js";
 import { runInContainer } from "../execution/container-runner.js";
+import { DEFAULT_CONTAINER_IMAGE } from "../core/config.js";
 
 export interface GateResult {
   ok: boolean;
@@ -31,7 +32,7 @@ export async function runGate(
   const result = options.executionMode === "container"
     ? await runInContainer({
         runtime: options.containerRuntime ?? "docker",
-        image: options.containerImage ?? "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        image: options.containerImage ?? DEFAULT_CONTAINER_IMAGE,
         workspacePath: cwd,
         env: options.env,
         command: "sh",

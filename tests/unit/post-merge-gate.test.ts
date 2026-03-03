@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { runGate } from "../../src/verification/post-merge-gate.js";
 import { runShellLine } from "../../src/core/shell.js";
 import { runInContainer } from "../../src/execution/container-runner.js";
+import { DEFAULT_CONTAINER_IMAGE } from "../../src/core/config.js";
 
 vi.mock("../../src/core/shell.js", () => ({
   runShellLine: vi.fn(),
@@ -141,7 +142,7 @@ describe("runGate", () => {
 
       expect(runInContainer).toHaveBeenCalledWith({
         runtime: "docker",
-        image: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        image: DEFAULT_CONTAINER_IMAGE,
         workspacePath: "/workspace",
         env: undefined,
         command: "sh",
@@ -197,7 +198,7 @@ describe("runGate", () => {
 
       expect(runInContainer).toHaveBeenCalledWith({
         runtime: "docker",
-        image: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+        image: DEFAULT_CONTAINER_IMAGE,
         workspacePath: "/workspace",
         env: undefined,
         command: "sh",

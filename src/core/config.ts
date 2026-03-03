@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+export const DEFAULT_CONTAINER_IMAGE = "ghcr.io/dmedlin87/gitweaver-runtime:latest";
+
 export interface RuntimeConfig {
   baselineGateCommand: string;
   concurrencyCap: number;
@@ -48,7 +50,7 @@ export const DEFAULT_CONFIG: RuntimeConfig = {
   sqliteBusyRetryMax: 2,
   executionMode: "host",
   containerRuntime: "docker",
-  containerImage: "ghcr.io/dmedlin87/gitweaver-runtime:latest",
+  containerImage: DEFAULT_CONTAINER_IMAGE,
   containerMemoryMb: 2048,
   containerCpuLimit: 2,
   containerRunAsUser: "65532:65532",
