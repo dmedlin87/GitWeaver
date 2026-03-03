@@ -76,14 +76,14 @@ describe("GeminiAdapter – container branch", () => {
     expect(opts.network).toBe("deny");
   });
 
-  it("defaults network to allow in container mode", async () => {
+  it("defaults network to deny in container mode", async () => {
     runInContainerMock.mockResolvedValue({ code: 0, stdout: "", stderr: "" });
 
     const adapter = new GeminiAdapter();
     await adapter.execute({ ...BASE_REQUEST, executionMode: "container" });
 
     const opts = runInContainerMock.mock.calls[0]![0] as { network: string };
-    expect(opts.network).toBe("allow");
+    expect(opts.network).toBe("deny");
   });
 
   it("maps stdout/stderr/rawOutput from container result", async () => {
