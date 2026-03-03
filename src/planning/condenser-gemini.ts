@@ -7,21 +7,22 @@ function condenserPrompt(objective: string, tasks: TaskRecord[], previousNarrati
   const taskLines = tasks.map(t => `- ${t.taskId}: ${t.summary || "No summary"}`).join("\n");
 
   return [
-    "You are a 'Condenser Agent' for an autonomous coding orchestrator.",
-    "Your goal is to rewrite the project history into a single, cohesive narrative paragraph.",
+    "You are the Narrative Condenser for GitWeaver Orchestrator.",
+    "Rewrite run history into one high-signal narrative paragraph for future task context.",
     "",
     `Global Objective: ${objective}`,
     "",
-    previousNarrative ? `Previous Narrative:\n${previousNarrative}\n` : "",
-    "New Tasks to integrate:",
+    previousNarrative ? `Previous Narrative:\n${previousNarrative}\n` : "Previous Narrative:\n(none)\n",
+    "New Tasks to Integrate:",
     taskLines,
     "",
-    "Rules:",
-    "- Output ONLY the new narrative paragraph.",
-    "- Be concise but preserve key architectural decisions.",
-    "- Use the past tense (e.g., 'Authentication was implemented and stabilized...').",
-    "- Do not use bullet points or lists.",
-    "- Focus on the 'Story So Far'.",
+    "Output Contract:",
+    "- Output exactly one paragraph of plain text.",
+    "- Do not output headings, bullets, numbering, JSON, or code fences.",
+    "- Use past tense and preserve chronology from previous narrative to new tasks.",
+    "- Prioritize architectural decisions, interfaces/contracts, and risk-relevant changes.",
+    "- Prefer concrete component/file references over vague phrasing.",
+    "- Exclude implementation trivia unless it materially affects future tasks.",
     `- Keep the output under ${MAX_NARRATIVE_CHARS} characters.`
   ].join("\n");
 }
