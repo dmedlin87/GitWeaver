@@ -34,7 +34,7 @@ If this page and code diverge, treat code as canonical.
 | Area | Codex | Claude | Gemini |
 |---|---|---|---|
 | Version check | `codex --version` | `claude --version` | `gemini --version` |
-| Auth check | `codex login status` | `claude auth status` | `gemini --prompt "Reply with OK." --output-format json --approval-mode plan` |
+| Auth check | `codex login status` | `claude auth status` | `gemini --prompt "Reply with OK." --output-format json --approval-mode default` |
 | Auth fix command | `codex login` | `claude auth login` | `gemini` (interactive login flow) |
 | npm package | `@openai/codex` | `@anthropic-ai/claude-code` | `@google/gemini-cli` |
 

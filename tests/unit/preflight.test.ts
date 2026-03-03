@@ -220,6 +220,33 @@ describe("buildInstallPlan", () => {
     expect(issueWithDetail).not.toContain("Command execution failed: Command execution failed:");
   });
 
+
+  it("uses default approval mode for gemini auth probe command", async () => {
+    mockGeminiChecks({
+      authCode: 0,
+      authStdout: '{"status":"ok"}'
+    });
+
+    await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    const probeCall = runCommandMock.mock.calls.find(
+      ([command, args]) => command === "gemini" && args[0] === "--prompt"
+    );
+
+    expect(probeCall).toBeDefined();
+    expect(probeCall?.[1]).toEqual([
+      "--prompt",
+      "Reply with OK.",
+      "--output-format",
+      "json",
+      "--approval-mode",
+      "default"
+    ]);
+  });
   it("treats cached credentials output as authenticated for gemini", async () => {
     mockGeminiChecks({
       authCode: 1,
