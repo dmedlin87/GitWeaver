@@ -59,7 +59,9 @@ describe("HostExecutor", () => {
         ANTHROPIC_API_KEY: "sk-ant",
         GOOGLE_API_KEY: "goog",
         GEMINI_API_KEY: "gem",
+        AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE",
         AWS_SECRET_ACCESS_KEY: "aws",
+        AWS_SESSION_TOKEN: "session-token",
         GITHUB_TOKEN: "ghp",
         GH_TOKEN: "ghx",
         NPM_TOKEN: "npm"
@@ -69,7 +71,9 @@ describe("HostExecutor", () => {
       expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.GOOGLE_API_KEY).toBeUndefined();
       expect(env.GEMINI_API_KEY).toBeUndefined();
+      expect(env.AWS_ACCESS_KEY_ID).toBeUndefined();
       expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(env.AWS_SESSION_TOKEN).toBeUndefined();
       expect(env.GITHUB_TOKEN).toBeUndefined();
       expect(env.GH_TOKEN).toBeUndefined();
       expect(env.NPM_TOKEN).toBeUndefined();
