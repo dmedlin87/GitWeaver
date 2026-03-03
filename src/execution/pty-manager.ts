@@ -58,8 +58,11 @@ export class PtyManager {
         : ["-lc", `${command} ${args.map((arg) => escapeArg(arg)).join(" ")}`];
 
       const baseEnv = { ...process.env };
-      for (const key of DENYLIST) {
-        delete baseEnv[key];
+      const denyLower = new Set(DENYLIST.map((k) => k.toLowerCase()));
+      for (const key of Object.keys(baseEnv)) {
+        if (denyLower.has(key.toLowerCase())) {
+          delete baseEnv[key];
+        }
       }
 
       const env = options.env ? { ...baseEnv, ...options.env } : baseEnv;

@@ -83,6 +83,27 @@ describe("PtyManager", () => {
     expect(spawnedEnv.OPENAI_API_KEY).toBeUndefined();
   });
 
+  it("filters sensitive environment variables case-insensitively", async () => {
+    process.env.OpenAi_Api_Key = "sk-test-case-insensitive";
+    process.env.Aws_Access_Key_Id = "aws-key";
+
+    const ptyManager = new PtyManager();
+    await ptyManager.run("echo", ["hello"], {
+      cwd: "/",
+      timeoutMs: 1000,
+      heartbeatMs: 500
+    });
+
+    const ptyModule = await import("node-pty");
+    expect(ptyModule.spawn).toHaveBeenCalled();
+    const spawnCall = vi.mocked(ptyModule.spawn).mock.calls.at(-1);
+    const spawnOptions = spawnCall?.[2] as { env: Record<string, string> };
+    const spawnedEnv = spawnOptions.env;
+
+    expect(spawnedEnv.OpenAi_Api_Key).toBeUndefined();
+    expect(spawnedEnv.Aws_Access_Key_Id).toBeUndefined();
+  });
+
   it("retains explicit environment variables from options", async () => {
     process.env.OPENAI_API_KEY = "sk-global";
     process.env.SAFE_VAR = "global-safe";

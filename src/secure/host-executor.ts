@@ -27,8 +27,11 @@ export class HostExecutor implements SecureExecutor {
         env[key] = value;
       }
     }
-    for (const key of DENYLIST) {
-      delete env[key];
+    const denyLower = new Set(DENYLIST.map((k) => k.toLowerCase()));
+    for (const key of Object.keys(env)) {
+      if (denyLower.has(key.toLowerCase())) {
+        delete env[key];
+      }
     }
     return env;
   }
