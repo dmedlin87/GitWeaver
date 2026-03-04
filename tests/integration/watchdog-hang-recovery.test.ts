@@ -75,7 +75,7 @@ vi.mock("../../src/execution/worktree-manager.js", () => ({
   WorktreeManager: class {
     constructor() {}
     create() {
-      return { path: "/tmp/worktree", branch: "orch/run/task" };
+      return { mutableSections: {}, path: "/tmp/worktree", branch: "orch/run/task" };
     }
     remove() {
       return Promise.resolve();
@@ -133,7 +133,7 @@ vi.mock("../../src/planning/context-pack.js", () => ({
 
 vi.mock("../../src/planning/prompt-envelope.js", () => ({
   buildPromptEnvelope: () => ({
-    immutableSectionsHash: "imm-hash",
+    immutableSectionsHash: "imm-hash", mutableSections: {},
     taskContractHash: "contract-hash",
     contextPackHash: "ctx-hash",
   }),
@@ -142,7 +142,7 @@ vi.mock("../../src/planning/prompt-envelope.js", () => ({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function makeTask(taskId: string) {
-  return {
+  return { mutableSections: {},
     taskId,
     provider: "claude",
     type: "code",

@@ -120,7 +120,7 @@ vi.mock("../../src/planning/context-pack.js", () => ({
 
 vi.mock("../../src/planning/prompt-envelope.js", () => ({
   buildPromptEnvelope: () => ({
-    immutableSectionsHash: "imm-hash",
+    immutableSectionsHash: "imm-hash", mutableSections: {},
     taskContractHash: "contract-hash",
     contextPackHash: "ctx-hash",
   }),
