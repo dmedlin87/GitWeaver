@@ -56,14 +56,15 @@ describe("LockManager", () => {
     let executed = false;
 
     // validate returns false to simulate stale lease
-    const resultPromise = queue.enqueue(
-      async () => {
-        executed = true;
-      },
-      () => false
-    );
+    expect(() => {
+      queue.enqueue(
+        async () => {
+          executed = true;
+        },
+        () => false
+      );
+    }).toThrow("Stale lease: validation failed before queueing");
 
-    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before queueing");
     expect(executed).toBe(false);
   });
 
