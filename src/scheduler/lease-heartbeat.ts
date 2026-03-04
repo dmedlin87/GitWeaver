@@ -10,7 +10,8 @@ export class LeaseHeartbeat {
     for (const lease of leases) {
       const key = `${ownerTaskId};;;${lease.resourceKey}`;
       if (this.timers.has(key)) {
-        continue;
+        clearInterval(this.timers.get(key));
+        this.timers.delete(key);
       }
 
       const timer = setInterval(() => {

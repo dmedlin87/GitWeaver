@@ -67,6 +67,27 @@ describe("LockManager", () => {
     expect(executed).toBe(false);
   });
 
+  it("stale lease attempting merge throws an error in MergeQueue (execution phase)", async () => {
+    const queue = new MergeQueue();
+    let executed = false;
+    let valid = true;
+
+    // validate returns true initially, then false to simulate stale lease during execution
+    const resultPromise = queue.enqueue(
+      async () => {
+        executed = true;
+      },
+      () => {
+        const currentValid = valid;
+        valid = false;
+        return currentValid;
+      }
+    );
+
+    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before execution");
+    expect(executed).toBe(false);
+  });
+
   it("timeout + reacquire + stale token reject stops renewals", () => {
     const manager = new LockManager(100);
     const heartbeat = new LeaseHeartbeat(manager, 50);
@@ -118,5 +139,14 @@ describe("LockManager", () => {
 
     // We don't need to call stopOwner again if it cleared correctly.
     manager.releaseOwner("task-2");
+  });
+
+  it("concurrent writers to same resource fail to acquire lock", () => {
+    const manager = new LockManager(100);
+    const lease1 = manager.tryAcquireWrite(["file:b.ts"], "task-1");
+    expect(lease1).not.toBeNull();
+
+    const lease2 = manager.tryAcquireWrite(["file:b.ts"], "task-2");
+    expect(lease2).toBeNull(); // lock already held
   });
 });
