@@ -35,7 +35,11 @@ describe("resume reconciliation integration", () => {
 
     writeFileSync(join(repo, "file.txt"), "hello world\n", "utf8");
     runGit(repo, ["add", "."]);
-    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-1\nORCH_TASK_ID=task-merged"]);
+    runGit(repo, [
+      "commit",
+      "-m",
+      "merge task\n\nORCH_RUN_ID=run-1\nORCH_TASK_ID=task-merged",
+    ]);
 
     const run: RunRecord = {
       runId: "run-1",
@@ -45,7 +49,7 @@ describe("resume reconciliation integration", () => {
       configHash: "cfg",
       state: "DISPATCHING",
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const tasksFromDb: TaskRecord[] = [
@@ -56,7 +60,7 @@ describe("resume reconciliation integration", () => {
         type: "code",
         state: "PENDING",
         attempts: 0,
-        contractHash: "hash-1"
+        contractHash: "hash-1",
       },
       {
         runId: run.runId,
@@ -65,14 +69,14 @@ describe("resume reconciliation integration", () => {
         type: "code",
         state: "RUNNING",
         attempts: 1,
-        contractHash: "hash-2"
-      }
+        contractHash: "hash-2",
+      },
     ];
 
     const decision = await reconcileResume({
       run,
       tasksFromDb,
-      events: []
+      events: [],
     });
 
     expect(decision.mergedTaskIds).toContain("task-merged");
@@ -92,7 +96,11 @@ describe("resume reconciliation integration", () => {
 
     writeFileSync(join(repo, "file.txt"), "hello lag\n", "utf8");
     runGit(repo, ["add", "."]);
-    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-lag\nORCH_TASK_ID=task-lag"]);
+    runGit(repo, [
+      "commit",
+      "-m",
+      "merge task\n\nORCH_RUN_ID=run-lag\nORCH_TASK_ID=task-lag",
+    ]);
 
     const run: RunRecord = {
       runId: "run-lag",
@@ -102,7 +110,7 @@ describe("resume reconciliation integration", () => {
       configHash: "cfg",
       state: "DISPATCHING",
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const tasksFromDb: TaskRecord[] = [
@@ -113,20 +121,24 @@ describe("resume reconciliation integration", () => {
         type: "code",
         state: "RUNNING",
         attempts: 1,
-        contractHash: "hash-lag"
-      }
+        contractHash: "hash-lag",
+      },
     ];
 
     const log = new EventLog(eventPath);
     log.append(run.runId, "TASK_ATTEMPT", { taskId: "task-lag", attempt: 1 });
-    appendFileSync(eventPath, '{"seq":2,"runId":"run-lag","ts":"2023-01-01T00:00:00.000Z","type":"TASK_PROVIDER_HEARTBEAT","payload":{"taskId":"task-lag"', "utf8");
+    appendFileSync(
+      eventPath,
+      '{"seq":2,"runId":"run-lag","ts":"2023-01-01T00:00:00.000Z","type":"TASK_PROVIDER_HEARTBEAT","payload":{"taskId":"task-lag"',
+      "utf8",
+    );
 
     const events = new EventLog(eventPath).readAll();
 
     const decision = await reconcileResume({
       run,
       tasksFromDb,
-      events
+      events,
     });
 
     expect(decision.mergedTaskIds).toContain("task-lag");
@@ -144,7 +156,11 @@ describe("resume reconciliation integration", () => {
 
     writeFileSync(join(repo, "file.txt"), "orchestrated\n", "utf8");
     runGit(repo, ["add", "."]);
-    runGit(repo, ["commit", "-m", "merge task\n\nORCH_RUN_ID=run-clean\nORCH_TASK_ID=task-1"]);
+    runGit(repo, [
+      "commit",
+      "-m",
+      "merge task\n\nORCH_RUN_ID=run-clean\nORCH_TASK_ID=task-1",
+    ]);
 
     const run: RunRecord = {
       runId: "run-clean",
@@ -154,13 +170,13 @@ describe("resume reconciliation integration", () => {
       configHash: "cfg",
       state: "DISPATCHING",
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const decision = await reconcileResume({
       run,
       tasksFromDb: [],
-      events: []
+      events: [],
     });
 
     expect(decision.driftDetected).toBe(false);
@@ -184,7 +200,7 @@ describe("resume reconciliation integration", () => {
       configHash: "cfg",
       state: "DISPATCHING",
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const log = new EventLog(eventPath);
@@ -194,7 +210,7 @@ describe("resume reconciliation integration", () => {
     const decision = await reconcileResume({
       run,
       tasksFromDb: [],
-      events
+      events,
     });
 
     expect(decision.escalatedTaskIds).toContain("task-missing");
@@ -217,7 +233,7 @@ describe("resume reconciliation integration", () => {
       configHash: "cfg",
       state: "DISPATCHING",
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const tasksFromDb: TaskRecord[] = [
@@ -228,17 +244,111 @@ describe("resume reconciliation integration", () => {
         type: "code",
         state: "MERGED", // DB says merged
         attempts: 1,
-        contractHash: "hash-missing"
-      }
+        contractHash: "hash-missing",
+      },
     ];
 
     const decision = await reconcileResume({
       run,
       tasksFromDb,
-      events: []
+      events: [],
     });
 
     expect(decision.requeueTaskIds).toContain("task-missing-git");
     expect(decision.reasons["task-missing-git"]).toBe("RESUME_MISSING_COMMIT");
+  });
+
+  it("requeues with RESUME_MERGE_IN_FLIGHT when db shows MERGE_QUEUED but git has no commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+
+    const run: RunRecord = {
+      runId: "run-merge-inflight",
+      objective: "check merge inflight",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-merge-queued",
+        provider: "claude",
+        type: "code",
+        state: "MERGE_QUEUED", // Crash during merge gate
+        attempts: 1,
+        contractHash: "hash-merge-queued",
+      },
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events: [],
+    });
+
+    expect(decision.requeueTaskIds).toContain("task-merge-queued");
+    expect(decision.reasons["task-merge-queued"]).toBe(
+      "RESUME_MERGE_IN_FLIGHT",
+    );
+  });
+
+  it("determines correct state from reordered events by respecting sequence numbers", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    const run: RunRecord = {
+      runId: "run-reordered",
+      objective: "check reordered events",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const eventPath = join(repo, "events.ndjson");
+    // Write out of order: seq 2 before seq 1
+    const line2 =
+      JSON.stringify({
+        seq: 2,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_MERGE_QUEUED",
+        payload: { taskId: "task-reordered" },
+        payloadHash: "hash",
+      }) + "\n";
+    const line1 =
+      JSON.stringify({
+        seq: 1,
+        runId: run.runId,
+        ts: new Date().toISOString(),
+        type: "TASK_RUNNING",
+        payload: { taskId: "task-reordered" },
+        payloadHash: "hash",
+      }) + "\n";
+
+    writeFileSync(eventPath, line2 + line1, "utf8");
+    const events = new EventLog(eventPath).readAll();
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events,
+    });
+
+    // It should pick up the higher seq event's state (MERGE_QUEUED) and therefore requeue it
+    // since there is no actual git commit.
+    expect(decision.requeueTaskIds).toContain("task-reordered");
+    expect(decision.reasons["task-reordered"]).toBe("RESUME_MERGE_IN_FLIGHT");
   });
 });
