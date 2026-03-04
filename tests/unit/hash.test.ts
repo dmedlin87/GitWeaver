@@ -60,6 +60,12 @@ describe("stableStringify", () => {
     expect(() => stableStringify(undefined)).toThrow("Cannot stableStringify undefined");
   });
 
+  it("handles an object containing undefined values by ignoring them during JSON.stringify", () => {
+    const input = { a: 1, b: undefined, c: 3 };
+    const output = stableStringify(input);
+    expect(output).toBe('{"a":1,"c":3}');
+  });
+
   it("handles complex mixed structure", () => {
     const input = {
       list: [

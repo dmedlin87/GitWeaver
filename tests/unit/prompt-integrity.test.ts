@@ -62,6 +62,63 @@ describe('Prompt Integrity & Determinism', () => {
       // Verify hashes match
       expect(pack1.contextPackHash).toBe(pack2.contextPackHash);
     });
+
+    it('should respect byte budget and select files deterministically based on tier and path', () => {
+      fs.writeFileSync(path.join(tempDir, 'package.json'), '1234567890'); // 10 bytes, tier: must
+      fs.writeFileSync(path.join(tempDir, 'a_allow.txt'), '1234567890'); // 10 bytes, tier: should
+      fs.writeFileSync(path.join(tempDir, 'z_allow.txt'), '1234567890'); // 10 bytes, tier: should
+      fs.writeFileSync(path.join(tempDir, 'a_consume.txt'), '1234567890'); // 10 bytes, tier: optional
+      fs.writeFileSync(path.join(tempDir, 'z_consume.txt'), '1234567890'); // 10 bytes, tier: optional
+
+      const task1 = {
+        taskId: 't1',
+        writeScope: { allow: ['z_allow.txt', 'a_allow.txt'] },
+        artifactIO: { consumes: ['z_consume.txt', 'a_consume.txt'] }
+      } as unknown as TaskContract;
+
+      // Byte budget = 25 bytes.
+      // 1. package.json (10 bytes) - selected
+      // 2. a_allow.txt (10 bytes) - selected
+      // Total = 20 bytes.
+      // 3. z_allow.txt (10 bytes) - skipped (exceeds budget)
+      // 4. a_consume.txt (10 bytes) - skipped
+      // 5. z_consume.txt (10 bytes) - skipped
+
+      const pack1 = buildContextPack(tempDir, task1, 25);
+
+      expect(pack1.must.map(f => f.path)).toEqual(['package.json']);
+      expect(pack1.should.map(f => f.path)).toEqual(['a_allow.txt']);
+      expect(pack1.optional.map(f => f.path)).toEqual([]);
+      expect(pack1.selectedTotalBytes).toBe(20);
+
+      // Even if order is different, should yield identical context pack
+      const task2 = {
+        taskId: 't1',
+        writeScope: { allow: ['a_allow.txt', 'z_allow.txt'] },
+        artifactIO: { consumes: ['a_consume.txt', 'z_consume.txt'] }
+      } as unknown as TaskContract;
+
+      const pack2 = buildContextPack(tempDir, task2, 25);
+      expect(pack1.contextPackHash).toBe(pack2.contextPackHash);
+    });
+
+    it('should exclude contextPackHash when calculating its own hash to prevent circularity non-determinism', async () => {
+      const task = {
+        taskId: 't1',
+        writeScope: { allow: [] },
+        artifactIO: { consumes: [] }
+      } as unknown as TaskContract;
+
+      const pack = buildContextPack(tempDir, task);
+      const hash1 = pack.contextPackHash;
+
+      // If we manually change the hash, re-stringifying should still produce the same hash
+      const packCopy = { ...pack, contextPackHash: 'some-other-hash' };
+      const { stableStringify, sha256 } = await import('../../src/core/hash.js');
+      const hash2 = sha256(stableStringify({ ...packCopy, contextPackHash: undefined }));
+
+      expect(hash1).toBe(hash2);
+    });
   });
 
   describe('Plan Freeze Determinism', () => {
@@ -227,6 +284,24 @@ describe('Prompt Integrity & Determinism', () => {
       } as PromptEnvelope;
 
       expect(() => assertPromptDrift(env1, env2)).not.toThrow();
+    });
+
+    it('should reject drift in any field other than mutable sections', () => {
+      const baseEnv = {
+        taskId: 't1', runId: 'r1', provider: 'p1', attempt: 1, baselineCommit: 'c1',
+        immutableSectionsHash: 'hashA',
+        taskContractHash: 'hashB',
+        contextPackHash: 'hashC',
+        mutableSections: { failureEvidence: [] }
+      } as PromptEnvelope;
+
+      // taskContractHash drift
+      const env2 = { ...baseEnv, taskContractHash: 'hashB_drift' };
+      expect(() => assertPromptDrift(baseEnv, env2)).toThrow(/contract hash drift detected/);
+
+      // contextPackHash drift
+      const env3 = { ...baseEnv, contextPackHash: 'hashC_drift' };
+      expect(() => assertPromptDrift(baseEnv, env3)).toThrow(/context hash drift detected/);
     });
   });
 });
