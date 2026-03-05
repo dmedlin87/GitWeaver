@@ -51,6 +51,65 @@ describe("LockManager", () => {
     expect(second).toBeNull();
   });
 
+  it("stale lease attempting merge", async () => {
+    const queue = new MergeQueue();
+    let executed = false;
+
+    // validate returns false to simulate stale lease
+    const resultPromise = queue.enqueue(
+      async () => {
+        executed = true;
+      },
+      () => false
+    );
+
+    await expect(resultPromise).rejects.toThrow("Stale lease: validation failed before queueing");
+    expect(executed).toBe(false);
+  });
+
+  it("concurrent writers to same resource", () => {
+    const manager = new LockManager(1000);
+    const first = manager.tryAcquireWrite(["file:b.ts"], "task-1");
+    expect(first).not.toBeNull();
+
+    const second = manager.tryAcquireWrite(["file:b.ts"], "task-2");
+    expect(second).toBeNull();
+  });
+
+  it("timeout + reacquire + stale token reject", () => {
+    const manager = new LockManager(100);
+    const heartbeat = new LeaseHeartbeat(manager, 50);
+
+    const firstLease = manager.tryAcquireWrite(["file:c.ts"], "task-1");
+    expect(firstLease).not.toBeNull();
+    const token1 = firstLease![0].fencingToken;
+
+    const renewSpy = vi.spyOn(manager, "renew");
+
+    heartbeat.start("task-1", firstLease!);
+
+    vi.advanceTimersByTime(50);
+    expect(renewSpy).toHaveBeenCalledWith("file:c.ts", "task-1", token1);
+    renewSpy.mockClear();
+
+    vi.advanceTimersByTime(40);
+    heartbeat.stopOwner("task-1");
+    vi.advanceTimersByTime(70);
+
+    const secondLease = manager.tryAcquireWrite(["file:c.ts"], "task-2");
+    expect(secondLease).not.toBeNull();
+
+    heartbeat.start("task-1", firstLease!);
+    vi.advanceTimersByTime(50);
+    expect(renewSpy).toHaveBeenCalledWith("file:c.ts", "task-1", token1);
+    renewSpy.mockClear();
+
+    vi.advanceTimersByTime(100);
+    expect(renewSpy).not.toHaveBeenCalled();
+
+    manager.releaseOwner("task-2");
+  });
+
   it("stale lease attempting merge throws an error in MergeQueue", async () => {
     const queue = new MergeQueue();
     let executed = false;
