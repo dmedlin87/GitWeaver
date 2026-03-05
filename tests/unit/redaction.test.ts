@@ -10,6 +10,14 @@ describe("redactSensitive", () => {
     expect(output).toBe("Here is my key: [REDACTED] and more text");
   });
 
+  it("redacts OpenAI-style keys with underscores", () => {
+    const input = "Here is my key: sk_abcdef1234567890abcdef1234567890 and more text";
+    const output = redactSensitive(input);
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk_abcdef1234567890abcdef1234567890");
+    expect(output).toBe("Here is my key: [REDACTED] and more text");
+  });
+
   it("redacts multiple OpenAI-style keys", () => {
     const input = "Key1: sk-abcdef1234567890abcdef1234567890, Key2: sk-1234567890abcdef1234567890abcdef";
     const output = redactSensitive(input);
