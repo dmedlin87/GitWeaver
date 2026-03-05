@@ -115,7 +115,7 @@ export function registerRunCommand(program: Command): void {
 function parseInteger(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid integer value: ${value}`);
+    throw new Error(`Invalid integer value: '${value}'. Must be a positive number.`);
   }
   return parsed;
 }
@@ -124,19 +124,19 @@ function parseBootstrapTemplate(value: string): BootstrapTemplate {
   if (value === "blank" || value === "web-game-ts") {
     return value;
   }
-  throw new Error(`Invalid bootstrap template: ${value}`);
+  throw new Error(`Invalid bootstrap template: '${value}'. Allowed values are: blank, web-game-ts.`);
 }
 
 function parsePlannerProvider(value: string): ProviderId {
   if (value === "codex" || value === "claude" || value === "gemini") {
     return value;
   }
-  throw new Error(`Invalid planner provider: ${value}`);
+  throw new Error(`Invalid planner provider: '${value}'. Allowed values are: codex, claude, gemini.`);
 }
 
 function parseForceModel(value: string): ProviderId {
   if (value === "codex" || value === "claude" || value === "gemini") {
     return value;
   }
-  throw new Error(`Invalid force-model provider: ${value}`);
+  throw new Error(`Invalid force-model provider: '${value}'. Allowed values are: codex, claude, gemini.`);
 }
