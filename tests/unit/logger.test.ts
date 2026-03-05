@@ -83,4 +83,20 @@ describe("Logger", () => {
     expect(typeof payload.ts).toBe("string");
     expect(() => new Date(payload.ts)).not.toThrow();
   });
+
+  it("redacts sensitive information in log payload", () => {
+    const logger = new Logger();
+    const token = "sk-abcdef1234567890abcdef1234567890";
+    logger.info(`Key is ${token}`, { secret: token });
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const line = logSpy.mock.calls[0]![0] as string;
+
+    expect(line).not.toContain(token);
+    expect(line).toContain("[REDACTED]");
+
+    const payload = JSON.parse(line);
+    expect(payload.message).toBe("Key is [REDACTED]");
+    expect(payload.context.secret).toBe("[REDACTED]");
+  });
 });

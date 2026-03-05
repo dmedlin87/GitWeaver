@@ -1,3 +1,5 @@
+import { redactSensitive } from "./redaction.js";
+
 export interface LogEntry {
   level: "debug" | "info" | "warn" | "error";
   message: string;
@@ -33,7 +35,7 @@ export class Logger {
 
   private log(entry: LogEntry): void {
     const payload = entry.context ? { ...entry, context: entry.context } : entry;
-    const line = JSON.stringify(payload);
+    const line = redactSensitive(JSON.stringify(payload));
     if (entry.level === "error") {
       console.error(line);
       return;
