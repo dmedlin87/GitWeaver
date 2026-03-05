@@ -230,3 +230,18 @@ describe('Prompt Integrity & Determinism', () => {
     });
   });
 });
+
+  describe('stableStringify Determinism', () => {
+    it('should throw an error when passed literal undefined', async () => {
+      const { stableStringify } = await import('../../src/core/hash.js');
+      expect(() => stableStringify(undefined)).toThrow(/Cannot stableStringify undefined/);
+    });
+
+    it('should handle undefined object properties deterministically', async () => {
+      const { stableStringify } = await import('../../src/core/hash.js');
+      const obj1 = { a: 1, b: undefined };
+      const obj2 = { b: undefined, a: 1 };
+      expect(stableStringify(obj1)).toBe('{"a":1}');
+      expect(stableStringify(obj1)).toBe(stableStringify(obj2));
+    });
+  });
