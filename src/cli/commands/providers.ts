@@ -134,7 +134,7 @@ function parseProviders(input?: string): ProviderId[] {
 
   for (const candidate of candidates) {
     if (!valid.includes(candidate as ProviderId)) {
-      throw new Error(`Invalid provider: ${candidate}`);
+      throw new Error(`Invalid provider: ${candidate}. Allowed: ${valid.join(", ")}`);
     }
     parsed.push(candidate as ProviderId);
   }
