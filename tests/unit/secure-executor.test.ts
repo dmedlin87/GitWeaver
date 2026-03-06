@@ -65,5 +65,10 @@ describe("AdvisoryExecutor", () => {
     it("returns false if taskAllowsNetwork is false", () => {
       expect(executor.networkAllowed(false)).toBe(false);
     });
+
+    it("falls back to false if taskAllowsNetwork is undefined", () => {
+      expect(executor.networkAllowed(undefined)).toBe(false);
+      expect(executor.networkAllowed()).toBe(false);
+    });
   });
 });
