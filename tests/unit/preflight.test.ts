@@ -202,7 +202,7 @@ describe("buildInstallPlan", () => {
         return { code: 0, stdout: "0.30.0\n", stderr: "" };
       }
       if (command === "gemini" && args[0] === "--prompt") {
-        throw new Error("Command execution failed: spawn ENOENT");
+        throw new Error("cOmmAnd eXecutiOn faiLed: spawn ENOENT");
       }
       throw new Error(`Unexpected command: ${command}`);
     });
@@ -214,16 +214,16 @@ describe("buildInstallPlan", () => {
     });
 
     expect(summary.statuses[0]?.authStatus).toBe("UNKNOWN");
-    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Command execution failed:"));
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.toLowerCase().includes("command execution failed:"));
     expect(issueWithDetail).toBeDefined();
-    expect(issueWithDetail).toBe("Command execution failed: spawn ENOENT");
+    expect(issueWithDetail).toBe("cOmmAnd eXecutiOn faiLed: spawn ENOENT");
     expect(issueWithDetail).not.toContain("Command execution failed: Command execution failed:");
   });
 
   it("does not duplicate 'Command execution failed:' for MISSING status", async () => {
     mockGeminiChecks({
       authCode: 1,
-      authStderr: "Command execution failed: Authentication required. Run: gemini"
+      authStderr: "COMMAND EXECUTION FAILED: Authentication required. Run: gemini"
     });
 
     const summary = await runPreflight(["gemini"], {
@@ -233,9 +233,9 @@ describe("buildInstallPlan", () => {
     });
 
     expect(summary.statuses[0]?.authStatus).toBe("MISSING");
-    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.includes("Command execution failed:"));
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.toLowerCase().includes("command execution failed:"));
     expect(issueWithDetail).toBeDefined();
-    expect(issueWithDetail).toBe("Command execution failed: Authentication required. Run: gemini");
+    expect(issueWithDetail).toBe("COMMAND EXECUTION FAILED: Authentication required. Run: gemini");
     expect(issueWithDetail).not.toContain("Command execution failed: Command execution failed:");
   });
 

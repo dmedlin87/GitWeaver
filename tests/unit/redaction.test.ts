@@ -19,6 +19,14 @@ describe("redactSensitive", () => {
     expect(output).toBe("Key1: [REDACTED], Key2: [REDACTED]");
   });
 
+  it("redacts OpenAI-style keys with underscores", () => {
+    const input = "Key: sk_abcdef1234567890abcdef1234567890";
+    const output = redactSensitive(input);
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk_abcdef1234567890abcdef1234567890");
+    expect(output).toBe("Key: [REDACTED]");
+  });
+
   it("redacts Anthropic-style keys", () => {
     const input = "export ANTHROPIC_API_KEY=sk-ant-api03-abcdef1234567890abcdef1234567890-test_abc";
     const output = redactSensitive(input);
