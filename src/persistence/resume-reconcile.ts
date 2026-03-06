@@ -76,6 +76,10 @@ function isEscalated(state: TaskState | undefined): boolean {
   return state === "ESCALATED";
 }
 
+function isMergeQueued(state: TaskState | undefined): boolean {
+  return state === "MERGE_QUEUED";
+}
+
 function resolveResumeEvidence(
   taskId: string,
   mergedSet: Set<string>,
@@ -108,6 +112,10 @@ function resolveResumeEvidence(
 
   if (eventState && !dbTask) {
     return { action: "requeue", reasonCode: REASON_CODES.RESUME_DB_LAG };
+  }
+
+  if (isMergeQueued(dbTask?.state) || isMergeQueued(eventState?.state)) {
+    return { action: "requeue", reasonCode: REASON_CODES.RESUME_MERGE_IN_FLIGHT };
   }
 
   if (dbTask || eventState) {
