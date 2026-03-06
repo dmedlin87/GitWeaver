@@ -486,6 +486,34 @@ describe("resume reconciliation failure modes", () => {
 
     const decision = await reconcileResume({ run, tasksFromDb, events: [] });
     expect(decision.requeueTaskIds).toContain("task-merge");
-    expect(decision.reasons["task-merge"]).toBe("RESUME_CRASH_RECOVERY");
+    expect(decision.reasons["task-merge"]).toBe("RESUME_MERGE_IN_FLIGHT");
+  });
+
+  it("emits RESUME_MERGE_IN_FLIGHT when event log shows MERGE_QUEUED but db shows RUNNING and git has no commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    const run: RunRecord = {
+      runId: "run-merge-in-flight-event",
+      objective: "resume check",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      { runId: run.runId, taskId: "task-merge-event", provider: "claude", type: "code", state: "RUNNING", attempts: 1, contractHash: "h" }
+    ];
+
+    const events: EventRecord[] = [
+      { seq: 1, runId: run.runId, ts: new Date().toISOString(), type: "TASK_MERGE_QUEUED", payload: { taskId: "task-merge-event" }, payloadHash: "hash" }
+    ];
+
+    const decision = await reconcileResume({ run, tasksFromDb, events });
+    expect(decision.requeueTaskIds).toContain("task-merge-event");
+    expect(decision.reasons["task-merge-event"]).toBe("RESUME_MERGE_IN_FLIGHT");
   });
 });
