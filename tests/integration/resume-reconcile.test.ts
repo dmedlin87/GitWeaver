@@ -241,4 +241,79 @@ describe("resume reconciliation integration", () => {
     expect(decision.requeueTaskIds).toContain("task-missing-git");
     expect(decision.reasons["task-missing-git"]).toBe("RESUME_MISSING_COMMIT");
   });
+
+  it("requeues with RESUME_MERGE_IN_FLIGHT when db shows MERGE_QUEUED but git is missing commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+
+    const run: RunRecord = {
+      runId: "run-merge-flight",
+      objective: "check merge queued",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const tasksFromDb: TaskRecord[] = [
+      {
+        runId: run.runId,
+        taskId: "task-merge-flight-db",
+        provider: "claude",
+        type: "code",
+        state: "MERGE_QUEUED",
+        attempts: 1,
+        contractHash: "hash-queued"
+      }
+    ];
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb,
+      events: []
+    });
+
+    expect(decision.requeueTaskIds).toContain("task-merge-flight-db");
+    expect(decision.reasons["task-merge-flight-db"]).toBe("RESUME_MERGE_IN_FLIGHT");
+  });
+
+  it("requeues with RESUME_MERGE_IN_FLIGHT when event log shows MERGE_QUEUED but git is missing commit", async () => {
+    const repo = makeTempDir();
+    initGitRepo(repo);
+    const eventPath = join(repo, "events.ndjson");
+
+    writeFileSync(join(repo, "file.txt"), "baseline\n", "utf8");
+    runGit(repo, ["add", "."]);
+    runGit(repo, ["commit", "-m", "baseline"]);
+
+    const run: RunRecord = {
+      runId: "run-merge-flight-event",
+      objective: "check merge queued event",
+      repoPath: repo,
+      baselineCommit: "base",
+      configHash: "cfg",
+      state: "DISPATCHING",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const log = new EventLog(eventPath);
+    log.append(run.runId, "TASK_MERGE_QUEUED", { taskId: "task-merge-flight-event" });
+    const events = new EventLog(eventPath).readAll();
+
+    const decision = await reconcileResume({
+      run,
+      tasksFromDb: [],
+      events
+    });
+
+    expect(decision.requeueTaskIds).toContain("task-merge-flight-event");
+    expect(decision.reasons["task-merge-flight-event"]).toBe("RESUME_MERGE_IN_FLIGHT");
+  });
 });

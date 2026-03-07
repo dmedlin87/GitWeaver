@@ -106,6 +106,11 @@ function resolveResumeEvidence(
     return { action: "requeue", reasonCode: REASON_CODES.RESUME_MISSING_COMMIT };
   }
 
+  const truthState = eventState?.state ?? dbTask?.state;
+  if (truthState === "MERGE_QUEUED") {
+    return { action: "requeue", reasonCode: REASON_CODES.RESUME_MERGE_IN_FLIGHT };
+  }
+
   if (eventState && !dbTask) {
     return { action: "requeue", reasonCode: REASON_CODES.RESUME_DB_LAG };
   }
