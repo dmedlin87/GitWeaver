@@ -119,4 +119,35 @@ describe("LockManager", () => {
     // We don't need to call stopOwner again if it cleared correctly.
     manager.releaseOwner("task-2");
   });
+
+  it("clears existing heartbeat timer when starting a new one for the same resource", () => {
+    const manager = new LockManager(100);
+    const heartbeat = new LeaseHeartbeat(manager, 50);
+
+    // Initial acquisition
+    const firstLease = manager.tryAcquireWrite(["file:b.ts"], "task-1");
+    expect(firstLease).not.toBeNull();
+    heartbeat.start("task-1", firstLease!);
+    const token1 = firstLease![0].fencingToken;
+
+    // Simulate re-acquiring without stopping the previous heartbeat
+    const secondLease = manager.tryAcquireWrite(["file:b.ts"], "task-1");
+    expect(secondLease).not.toBeNull();
+    const token2 = secondLease![0].fencingToken;
+    expect(token2).toBeGreaterThan(token1);
+
+    // The previous implementation would ignore the new start() call because
+    // the timer key already existed, causing it to renew with token1 instead of token2.
+    // The fixed implementation clears the old timer and uses the new token.
+    heartbeat.start("task-1", secondLease!);
+
+    const renewSpy = vi.spyOn(manager, "renew");
+
+    // Advance time to trigger a renewal
+    vi.advanceTimersByTime(50);
+
+    // It should have renewed with the NEW fencing token (token2)
+    expect(renewSpy).toHaveBeenCalledWith("file:b.ts", "task-1", token2);
+    expect(renewSpy).not.toHaveBeenCalledWith("file:b.ts", "task-1", token1);
+  });
 });
