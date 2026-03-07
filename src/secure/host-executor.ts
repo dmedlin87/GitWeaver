@@ -36,8 +36,8 @@ export class HostExecutor implements SecureExecutor {
     return env;
   }
 
-  public networkAllowed(taskAllowsNetwork: boolean): boolean {
-    return taskAllowsNetwork;
+  public networkAllowed(taskAllowsNetwork?: boolean): boolean {
+    return taskAllowsNetwork ?? false;
   }
 
   public modeName(): string {

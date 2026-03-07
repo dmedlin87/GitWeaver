@@ -239,6 +239,25 @@ describe("buildInstallPlan", () => {
     expect(issueWithDetail).not.toContain("Command execution failed: Command execution failed:");
   });
 
+  it("does not duplicate 'Command execution failed:' for lowercase MISSING status", async () => {
+    mockGeminiChecks({
+      authCode: 1,
+      authStderr: "command execution failed: Authentication required. Run: gemini"
+    });
+
+    const summary = await runPreflight(["gemini"], {
+      installMissing: "never",
+      upgradeProviders: "never",
+      nonInteractive: true
+    });
+
+    expect(summary.statuses[0]?.authStatus).toBe("MISSING");
+    const issueWithDetail = summary.statuses[0]?.issues.find(i => i.toLowerCase().includes("command execution failed:"));
+    expect(issueWithDetail).toBeDefined();
+    expect(issueWithDetail).toBe("command execution failed: Authentication required. Run: gemini");
+    expect(issueWithDetail?.toLowerCase()).not.toContain("command execution failed: command execution failed:");
+  });
+
   it("treats cached credentials output as authenticated for gemini", async () => {
     mockGeminiChecks({
       authCode: 1,
