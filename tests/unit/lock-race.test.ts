@@ -84,6 +84,40 @@ describe("Concurrency Audit: Lock Leasing & Merge Queue", () => {
     expect(lease3![0].fencingToken).toBe(3);
   });
 
+  it("REGRESSION: timeout + reacquire + stale token reject", async () => {
+    const lockManager = new LockManager(50);
+    const resource = "file:config.json";
+
+    // 1. Task A acquires lock
+    const lease1 = lockManager.tryAcquireWrite([resource], "task-A");
+    expect(lease1).not.toBeNull();
+    const token1 = lease1![0].fencingToken;
+
+    // 2. Wait for lease to expire (timeout)
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // 3. Task A re-acquires lock (reacquire)
+    const lease2 = lockManager.tryAcquireWrite([resource], "task-A");
+    expect(lease2).not.toBeNull();
+    const token2 = lease2![0].fencingToken;
+    expect(token2).toBeGreaterThan(token1);
+
+    // 4. Stale token reject (trying to renew with token1 should fail)
+    const renewedOld = lockManager.renew(resource, "task-A", token1);
+    expect(renewedOld).toBe(false);
+
+    // 5. Valid token renew (trying to renew with token2 should succeed)
+    const renewedNew = lockManager.renew(resource, "task-A", token2);
+    expect(renewedNew).toBe(true);
+
+    // Validate that validating fencing with old token is rejected
+    const validOld = lockManager.validateFencing(resource, "task-A", token1);
+    expect(validOld).toBe(false);
+
+    const validNew = lockManager.validateFencing(resource, "task-A", token2);
+    expect(validNew).toBe(true);
+  });
+
   it("REGRESSION: rejects renewal of expired lease", async () => {
     const lockManager = new LockManager(50);
     const resource = "db:row:1";
