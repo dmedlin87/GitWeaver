@@ -1,3 +1,3 @@
-## YYYY-MM-DD - [Title]
-**Learning:** [UX/a11y insight]
-**Action:** [How to apply next time]
+## 2024-05-24 - Actionable CLI Validation Messages
+**Learning:** Returning generic validation errors like "Invalid value" in CLI parsing leads to a poor developer experience as users must guess or look up the allowed values.
+**Action:** When throwing errors for invalid inputs in parsing functions (e.g., in Commander.js setups), always explicitly include the allowed values, bounds, or expected format in the error message to make it immediately actionable.
