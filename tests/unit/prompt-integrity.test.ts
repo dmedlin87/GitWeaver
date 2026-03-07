@@ -62,6 +62,57 @@ describe('Prompt Integrity & Determinism', () => {
       // Verify hashes match
       expect(pack1.contextPackHash).toBe(pack2.contextPackHash);
     });
+
+    it('should deduplicate files across tier boundaries deterministically', () => {
+      fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, 'package.json'), '{}'); // MUST tier
+      fs.writeFileSync(path.join(tempDir, 'src', 'other.ts'), 'export {}'); // SHOULD tier
+
+      // baselineFiles() automatically includes package.json (which is MUST tier).
+      // src/index.ts is also in baselineFiles, but we are explicitly avoiding it here to test SHOULD->OPTIONAL transition.
+      const task = {
+        taskId: 'task1',
+        provider: 'mock',
+        writeScope: { allow: ['package.json', 'src/other.ts'] }, // package.json is both MUST and SHOULD
+        artifactIO: { consumes: ['src/other.ts'] } // src/other.ts is both SHOULD and OPTIONAL
+      } as unknown as TaskContract;
+
+      const pack = buildContextPack(tempDir, task);
+
+      // package.json should be ONLY in must
+      expect(pack.must.map(m => m.path)).toContain('package.json');
+      expect(pack.should.map(s => s.path)).not.toContain('package.json');
+
+      // src/other.ts should be ONLY in should
+      expect(pack.should.map(s => s.path)).toContain('src/other.ts');
+      expect(pack.optional.map(o => o.path)).not.toContain('src/other.ts');
+    });
+
+    it('should drop optional/should files if byteBudget is exceeded deterministically', () => {
+      fs.writeFileSync(path.join(tempDir, 'file_must.txt'), 'A'.repeat(50));
+      fs.writeFileSync(path.join(tempDir, 'file_should.txt'), 'B'.repeat(50));
+      fs.writeFileSync(path.join(tempDir, 'file_optional.txt'), 'C'.repeat(50));
+
+      // We need a way to mock baselineFiles if we want it to be MUST, but package.json is our only MUST
+      fs.writeFileSync(path.join(tempDir, 'package.json'), 'A'.repeat(50));
+
+      const task = {
+        taskId: 'task1',
+        provider: 'mock',
+        writeScope: { allow: ['file_should.txt'] },
+        artifactIO: { consumes: ['file_optional.txt'] }
+      } as unknown as TaskContract;
+
+      const pack = buildContextPack(tempDir, task, 60);
+
+      // Total budget is 60. MUST takes 50. Only 10 remaining.
+      // SHOULD takes 50, so it gets dropped.
+      // OPTIONAL takes 50, so it gets dropped.
+      expect(pack.must.map(m => m.path)).toContain('package.json');
+      expect(pack.should).toHaveLength(0);
+      expect(pack.optional).toHaveLength(0);
+      expect(pack.selectedTotalBytes).toBe(50);
+    });
   });
 
   describe('Plan Freeze Determinism', () => {
