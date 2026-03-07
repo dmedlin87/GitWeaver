@@ -486,6 +486,6 @@ describe("resume reconciliation failure modes", () => {
 
     const decision = await reconcileResume({ run, tasksFromDb, events: [] });
     expect(decision.requeueTaskIds).toContain("task-merge");
-    expect(decision.reasons["task-merge"]).toBe("RESUME_CRASH_RECOVERY");
+    expect(decision.reasons["task-merge"]).toBe("RESUME_MERGE_IN_FLIGHT");
   });
 });
