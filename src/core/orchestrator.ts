@@ -679,9 +679,15 @@ export class Orchestrator {
     const resourceKeys = this.resourceKeys(task);
     const leases = await this.acquireWriteLeasesWithRetry(ctx, lockManager, resourceKeys, task.taskId);
 
-    for (const lease of leases) {
-      await ctx.db.upsertLease(ctx.run.runId, lease.resourceKey, task.taskId, lease.expiresAt, lease.fencingToken);
-    }
+    // ⚡ Bolt: Wrap lease inserts in a transaction
+    // 💡 What: Grouping multiple lease inserts into a single SQLite transaction.
+    // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
+    // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), making lease acquisition significantly faster when task has multiple resources.
+    await ctx.db.transaction(async () => {
+      for (const lease of leases) {
+        await ctx.db.upsertLease(ctx.run.runId, lease.resourceKey, task.taskId, lease.expiresAt, lease.fencingToken);
+      }
+    });
     heartbeat.start(task.taskId, leases);
 
     const baseCommit = await this.gitHead(ctx.run.repoPath);
@@ -994,9 +1000,16 @@ export class Orchestrator {
 
           const producedArtifacts = task.artifactIO.produces ?? [];
           const producedSignatures = collectArtifactSignatures(ctx.run.repoPath, producedArtifacts);
-          for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
-            await ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
-          }
+
+          // ⚡ Bolt: Wrap artifact signature inserts in a transaction
+          // 💡 What: Grouping multiple artifact signature inserts into a single SQLite transaction.
+          // 🎯 Why: SQLite requires a separate disk sync for each implicit transaction when auto-commit is on.
+          // 📊 Impact: Reduces I/O overhead from O(N) fsyncs to O(1), speeding up post-merge verification when a task produces multiple artifacts.
+          await ctx.db.transaction(async () => {
+            for (const [artifactKey, signature] of Object.entries(producedSignatures)) {
+              await ctx.db.upsertArtifactSignature(ctx.run.runId, artifactKey, signature, artifactKey);
+            }
+          });
 
           const integrationDone = ctx.events.append(ctx.run.runId, "TASK_INTEGRATION_FINISH", { taskId: task.taskId, commitHash });
           await ctx.db.upsertResumeCheckpoint(ctx.run.runId, task.taskId, "VERIFIED", integrationDone.seq, commitHash);

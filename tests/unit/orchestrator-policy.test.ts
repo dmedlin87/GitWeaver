@@ -123,6 +123,7 @@ vi.mock("../../src/planning/prompt-envelope.js", () => ({
     immutableSectionsHash: "imm-hash",
     taskContractHash: "contract-hash",
     contextPackHash: "ctx-hash",
+    mutableSections: { failureEvidence: [], boundedHints: [] },
   }),
   assertPromptDrift: () => {},
 }));
