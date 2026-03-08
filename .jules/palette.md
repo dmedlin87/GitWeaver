@@ -1,3 +1,3 @@
-## YYYY-MM-DD - [Title]
-**Learning:** [UX/a11y insight]
-**Action:** [How to apply next time]
+## 2024-05-24 - Actionable CLI Validation Messages
+**Learning:** CLI applications with poor validation error messages (like "Invalid value") create a frustrating developer experience because users don't know the expected format or allowed options.
+**Action:** When creating CLI tools, ensure that validation error messages are specific and actionable by explicitly including the allowed values, expected format, or correct usage syntax.
