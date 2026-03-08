@@ -39,6 +39,10 @@ describe("ContainerExecutor", () => {
     it("honors taskAllowsNetwork=false (deny)", () => {
       expect(executor.networkAllowed(false)).toBe(false);
     });
+
+    it("falls back to false if taskAllowsNetwork is undefined", () => {
+      expect(executor.networkAllowed(undefined as unknown as boolean)).toBe(false);
+    });
   });
 
   describe("modeName", () => {
