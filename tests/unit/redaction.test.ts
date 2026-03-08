@@ -27,6 +27,14 @@ describe("redactSensitive", () => {
     expect(output).toBe("export ANTHROPIC_API_KEY=[REDACTED]");
   });
 
+  it("redacts keys with underscore separator", () => {
+    const input = "export MY_API_KEY=sk_abcdef1234567890abcdef1234567890_test_abc";
+    const output = redactSensitive(input);
+    expect(output).toContain("[REDACTED]");
+    expect(output).not.toContain("sk_abcdef1234567890abcdef1234567890_test_abc");
+    expect(output).toBe("export MY_API_KEY=[REDACTED]");
+  });
+
   it("redacts AWS access keys", () => {
     const input = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE";
     const output = redactSensitive(input);

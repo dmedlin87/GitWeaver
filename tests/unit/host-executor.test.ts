@@ -100,6 +100,10 @@ describe("HostExecutor", () => {
       expect(executor.networkAllowed(true)).toBe(true);
       expect(executor.networkAllowed(false)).toBe(false);
     });
+
+    it("falls back to false if taskAllowsNetwork is undefined", () => {
+      expect(executor.networkAllowed(undefined as unknown as boolean)).toBe(false);
+    });
   });
 
   describe("modeName", () => {

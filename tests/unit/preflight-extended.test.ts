@@ -25,6 +25,7 @@ vi.mock("../../src/core/prompt.js", () => ({
 
 import { buildInstallPlan, applyInstallPlan, runPreflight, checkProviders } from "../../src/providers/preflight.js";
 import type { ProviderStatus } from "../../src/core/types.js";
+import { PROVIDER_SPECS } from "../../src/providers/registry.js";
 
 function makeStatus(overrides: Partial<ProviderStatus>): ProviderStatus {
   return {
@@ -174,6 +175,39 @@ describe("checkSingleProvider – codex", () => {
     const [status] = await checkProviders(["codex"]);
     expect(status!.authStatus).toBe("OK");
     expect(status!.healthStatus).toBe("HEALTHY");
+  });
+});
+
+describe("checkSingleProvider – auth failure deduplication", () => {
+  beforeEach(() => {
+    runCommandMock.mockReset();
+    vi.unstubAllEnvs();
+  });
+
+  it("does not duplicate 'Command execution failed:' prefix when auth is MISSING", async () => {
+    // Force version and latest check to pass
+    runCommandMock.mockResolvedValueOnce({ code: 0, stdout: "1.0.0", stderr: "" });
+    runCommandMock.mockResolvedValueOnce({ code: 0, stdout: "1.0.0", stderr: "" });
+    // Force auth check to fail with MISSING and custom detail containing the prefix
+    runCommandMock.mockResolvedValueOnce({ code: 1, stdout: "authentication required", stderr: "Command execution failed: Custom error" });
+
+    const statuses = await checkProviders(["codex"]);
+    expect(statuses[0]?.authStatus).toBe("MISSING");
+    expect(statuses[0]?.issues).toContain("Command execution failed: Custom error");
+    expect(statuses[0]?.issues).not.toContain("Command execution failed: Command execution failed: Custom error");
+  });
+
+  it("does not duplicate 'Command execution failed:' prefix when auth is UNKNOWN", async () => {
+    // Force version and latest check to pass
+    runCommandMock.mockResolvedValueOnce({ code: 0, stdout: "1.0.0", stderr: "" });
+    runCommandMock.mockResolvedValueOnce({ code: 0, stdout: "1.0.0", stderr: "" });
+    // Force auth check to fail with UNKNOWN and custom detail
+    runCommandMock.mockRejectedValueOnce(new Error("cOmMaNd ExEcUtIoN fAiLeD: Error code 123"));
+
+    const statuses = await checkProviders(["codex"]);
+    expect(statuses[0]?.authStatus).toBe("UNKNOWN");
+    expect(statuses[0]?.issues).toContain("cOmMaNd ExEcUtIoN fAiLeD: Error code 123");
+    expect(statuses[0]?.issues).not.toContain("Command execution failed: cOmMaNd ExEcUtIoN fAiLeD: Error code 123");
   });
 });
 
